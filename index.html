@@ -49,6 +49,7 @@ function snap(c,cb,er){const load=async()=>{try{cb(await rows(c))}catch(e){er&&e
 function ref(c,id){return{
  async set(o){let r;if(c==='users'){r=await sb.from('profiles').update({nome:o.nome,perfil:o.perfil}).eq('id',id).select();if(!r.error&&!r.data.length)throw{code:'usuario_nao_encontrado'}}
   else r=await sb.from('docs').upsert({collection:c,id,data:o,updated_at:new Date().toISOString()},{onConflict:'collection,id'});if(r.error)throw r.error},
+ async create(o){const r=await sb.from('docs').insert({collection:c,id,data:o});if(r.error)throw r.error},
  async delete(){const r=await sb.from('docs').delete().eq('collection',c).eq('id',id);if(r.error)throw r.error},
  onSnapshot(f,e){snap(c,a=>{const d=a.find(x=>x.id===id);f({exists:!!d,data:()=>d&&d.data})},e)}}}
 const DB={collection:c=>({...{doc:id=>ref(c,id)},onSnapshot:(f,e)=>snap(c,a=>f({docs:a.map(x=>({id:x.id,data:()=>x.data}))}),e)}),doc:p=>{const[c,i]=p.split('/');return ref(c,i)}};
@@ -124,10 +125,10 @@ function vForm(){
  return`<h2>${sel?'Editar':'Novo'} aluno</h2><div class="c">
  ${f('nome','Nome completo *')}${f('cpf','CPF *')}${f('tel','Telefone/WhatsApp','tel')}${f('email','E-mail','email')}
  ${f('cep','CEP')}${f('rua','Rua')}${f('num','Número')}${f('compl','Complemento')}${f('bairro','Bairro')}${f('cidade','Cidade')}${f('uf','Estado')}
- <datalist id="cl">${courses.map(c=>`<option value="${esc(c.nome)}">`).join('')}</datalist>${f('curso','Curso contratado * (use o nome do curso cadastrado)')}${f('turma','Turma e horário *')}${f('matricula','Data de matrícula','date')}
+ <label>Curso *</label><select id="f_curso" onchange="fillT()"><option value="">Selecione</option>${courses.filter(c=>!c.arq).map(c=>`<option value="${c.id}" ${cidOf(s)===c.id?'selected':''}>${esc(c.nome)}</option>`).join('')}</select><label>Turma *</label><select id="f_turma">${turmaOpts(cidOf(s),s.turmaId)}</select>${f('matricula','Data de matrícula','date')}
  ${sel?'':`${f('total','Valor total do curso (R$) *','number')}${f('valorMat','Valor da matrícula (R$)','number')}${f('n','Quantidade de parcelas *','number')}${f('venc1','Data do 1º vencimento *','date')}`}
- ${f('forma','Forma de pagamento padrão')}
- <label>Situação</label><select id="f_status">${['ativo','concluído','trancado','cancelado'].map(o=>`<option ${s.status===o?'selected':''}>${o}</option>`).join('')}</select>
+ <label>Forma de pagamento</label><select id="f_forma">${['Pix','Cartão de crédito','Dinheiro',...(s.forma&&!['Pix','Cartão de crédito','Dinheiro'].includes(s.forma)?[s.forma]:[])].map(o=>`<option ${s.forma===o?'selected':''}>${esc(o)}</option>`).join('')}</select>
+ <label ${sel?'':'hidden'}>Situação</label><select id="f_status" ${sel?'':'hidden'}>${['ativo','concluído','trancado','cancelado'].map(o=>`<option ${s.status===o?'selected':''}>${o}</option>`).join('')}</select>
  <label>Observações</label><textarea id="f_obs">${v('obs')}</textarea>
  <div class="row"><button class="b2" onclick="go('${sel?'aluno':'alunos'}','${sel||''}')">Cancelar</button><button class="b" onclick="saveStudent()">Salvar</button></div></div>`}
 
@@ -135,8 +136,8 @@ async function saveStudent(){
  const g=k=>(document.getElementById('f_'+k)||{}).value||'';
  const keys=['nome','cpf','tel','email','cep','rua','num','compl','bairro','cidade','uf','curso','turma','matricula','forma','status','obs'];
  const o=sel?clone(students.find(x=>x.id===sel)):{id:uid(),pays:[],inst:[]};
- keys.forEach(k=>o[k]=g(k).trim());
- if(!o.nome||!o.curso||!o.turma){alert('Preencha nome, curso e turma.');return}
+ const oc=o.curso,ot=o.turma;keys.forEach(k=>o[k]=g(k).trim());if(!sel)o.status='ativo';
+ if(!o.nome){alert('Preencha o nome.');return}if(o.curso||!sel){const c=courses.find(x=>x.id===o.curso),t=turmas.find(x=>x.id===o.turma);if(!c||!t){alert('Selecione o curso e a turma.');return}if(t.cursoId!==c.id){alert('A turma escolhida pertence a outro curso.');return}o.cursoId=c.id;o.turmaId=t.id;o.curso=c.nome;o.turma=turmaLabel(t)}else{o.curso=oc;o.turma=ot}
  if(!cpfOk(o.cpf)){alert('CPF inválido.');return}
  if(!sel){
   const total=+g('total'),vm=+g('valorMat')||0,n=parseInt(g('n'));
@@ -209,11 +210,11 @@ async function exportCsv(){
 
 
 </script><script>
-let courses=[],bills=[],users=[],audit=[],expRaw=[],me={id:'',name:'',owner:false},perfil='pendente',ctab='pagar';
-const PERM={dir:['painel','alunos','cursos','contas','caixa','rel','config'],fin:['painel','alunos','caixa','contas','rel'],ped:['cursos','rel'],prof:['cursos']};
+let turmas=[],profs=[],courses=[],bills=[],users=[],audit=[],expRaw=[],me={id:'',name:'',owner:false},perfil='pendente',ctab='pagar';
+const PERM={dir:['painel','alunos','cursos','turmas','contas','caixa','rel','config'],fin:['painel','alunos','caixa','contas','rel'],ped:['cursos','turmas','rel'],prof:['cursos']};
 const PN={dir:'Diretor',fin:'Administrador financeiro',ped:'Administrador pedagógico',prof:'Professor'};
 const can=k=>(PERM[perfil]||[]).includes(k);
-const NAV=[['painel','Painel'],['alunos','Alunos'],['cursos','Cursos'],['contas','Contas'],['caixa','Caixa'],['rel','Relatórios'],['config','Config']];
+const NAV=[['painel','Painel'],['alunos','Alunos'],['cursos','Cursos'],['turmas','Turmas'],['contas','Contas'],['caixa','Caixa'],['rel','Relatórios'],['config','Config']];
 async function log(a){try{const id=uid();await db.collection('audit').doc(id).set({id,ts:new Date().toISOString(),user:me.name||me.id,acao:a})}catch(e){}}
 const done=a=>a.status==='realizada'||a.status==='reposta';
 const lessons=c=>c.mods.flatMap((m,mi)=>m.aulas.map(a=>({...a,mi})));
@@ -232,12 +233,12 @@ function render(){
  if(!db){a.innerHTML='<div class="c">Abra este link pelo claude.ai, logado na conta convidada, para acessar os dados.</div>';return}
  if(perfil==='pendente'){a.innerHTML=`<div class="c"><b>Aguardando liberação</b><div class="k">Envie este código ao diretor para liberar seu acesso:</div><div class="v ac">${esc(me.id)}</div></div>`;return}
  if(!can(base)){view=PERM[perfil][0];return render()}
- const V={painel:vPainel,alunos:vAlunos,aluno:vAluno,form:vForm,caixa:vCaixa,config:vConfig,cursos:vCursos,curso:vCurso,cform:vCForm,chamada:vChamada,contas:vContas,rel:vRel};
+ const V={painel:vPainel,alunos:vAlunos,aluno:vAluno,form:vForm,caixa:vCaixa,config:vConfig,cursos:vCursos,curso:vCurso,cform:vCForm,chamada:vChamada,contas:vContas,rel:vRel,turmas:vTurmas};
  a.innerHTML=(msg?`<div class="c ac">${esc(msg)}</div>`:'')+V[view]();msg='';
 }
 
 function vCursos(){return`<div class="row"><h2>Cursos</h2><button class="b" onclick="go('cform')">+ Novo</button></div>${courses.filter(c=>!c.arq).map(c=>{const ls=lessons(c);return`<div class="c" onclick="go('curso','${c.id}')"><b>${esc(c.nome)}</b><div class="k">${c.mods.length} módulos · ${ls.length} aulas · ${c.carga}h · prof. ${esc(c.prof)}</div><div class="row"><span>${pct(ls)}% concluído</span><span class="k">${enrolled(c).length} alunos</span></div></div>`}).join('')||'<div class="c k">Nenhum curso.</div>'}`}
-function vCForm(){const f=(k,l,t='text',v='')=>`<label>${l}</label><input id="c_${k}" type="${t}" value="${v}">`;return`<h2>Novo curso</h2><div class="c">${f('nome','Nome do curso * (igual ao usado no cadastro do aluno)')}${f('prof','Professor responsável')}${f('carga','Carga horária total (h)','number')}${f('nmod','Quantidade de módulos *','number','1')}${f('apm','Aulas por módulo *','number')}${f('min','Frequência mínima (%)','number','75')}<label>Falta justificada</label><select id="c_just"><option value="0">Não entra no cálculo</option><option value="1">Conta como falta</option></select><div class="row"><button class="b2" onclick="go('cursos')">Cancelar</button><button class="b" onclick="saveCurso()">Criar</button></div></div>`}
+function vCForm(){const f=(k,l,t='text',v='')=>`<label>${l}</label><input id="c_${k}" type="${t}" value="${v}">`;return`<h2>Novo curso</h2><div class="c">${f('nome','Nome do curso *')}${f('prof','Professor responsável')}${f('carga','Carga horária total (h)','number')}${f('nmod','Quantidade de módulos *','number','1')}${f('apm','Aulas *','number')}${f('min','Frequência mínima (%)','number','75')}<label>Falta justificada</label><select id="c_just"><option value="0">Não entra no cálculo</option><option value="1">Conta como falta</option></select><div class="row"><button class="b2" onclick="go('cursos')">Cancelar</button><button class="b" onclick="saveCurso()">Criar</button></div></div>`}
 async function saveCurso(){const g=k=>$('#c_'+k).value.trim();const nm=parseInt(g('nmod')),ap=parseInt(g('apm'));if(!g('nome')||!(nm>0)||!(ap>0)){alert('Informe nome, módulos e aulas por módulo.');return}
  const id=uid();let n=0;const c={id,nome:g('nome'),prof:g('prof'),carga:+g('carga')||0,min:+g('min')||75,just:g('just')==='1',att:{},mods:[...Array(nm)].map((_,i)=>({nome:'Módulo '+(i+1),aulas:[...Array(ap)].map(()=>{n++;return{id:'a'+n,n,titulo:'Aula '+n,data:'',status:'planejada'}})}))};
  try{await db.collection('courses').doc(id).set(c);log('Curso criado: '+c.nome);go('curso',id)}catch(e){alert('Erro: '+(e.message||e.code))}}
@@ -247,8 +248,8 @@ function vCurso(){const c=courses.find(x=>x.id===sel);if(!c)return'<div class="c
  <h2>Frequência</h2>${enrolled(c).map(s=>{const f=freq(c,s.id);const low=f.pc!==null&&f.pc<c.min;return`<div class="c row"><span>${esc(s.nome)}<br><span class="k">${f.p} pres · ${f.f} faltas · ${f.j} justif.</span></span><b class="${low?'bad':'ok'}">${f.pc===null?'—':f.pc+'%'}</b></div>`}).join('')||'<div class="k">Nenhum aluno ativo com este curso no cadastro.</div>'}`}
 async function saveLes(cid,aid,k,v){const c=clone(courses.find(x=>x.id===cid));c.mods.forEach(m=>m.aulas.forEach(a=>{if(a.id===aid)a[k]=v}));try{await db.collection('courses').doc(cid).set(c);if(k==='status')log(`Aula ${aid.slice(1)} de ${c.nome}: ${v}`)}catch(e){alert('Erro')}}
 function vChamada(){const c=courses.find(x=>x.id===sel),a=c&&lessons(c).find(x=>x.id===window.__les);if(!a)return'';const r=(c.att||{})[a.id]||{};
- return`<button class="b2" onclick="go('curso','${c.id}')">← Voltar</button><h2>Chamada: ${esc(c.nome)}</h2><div class="k">Aula ${a.n} · ${esc(a.titulo)} ${dbr(a.data)}</div>${enrolled(c).map(s=>`<div class="c"><b>${esc(s.nome)}</b><select id="a_${s.id}">${[['','—'],['P','Presente'],['F','Falta'],['J','Falta justificada'],['A','Atraso']].map(([v,l])=>`<option value="${v}" ${r[s.id]===v?'selected':''}>${l}</option>`).join('')}</select></div>`).join('')||'<div class="c k">Sem alunos ativos neste curso.</div>'}<button class="b" onclick="saveCham()">Salvar chamada</button>`}
-async function saveCham(){const c=clone(courses.find(x=>x.id===sel));const o={};enrolled(c).forEach(s=>{const v=$('#a_'+s.id).value;if(v)o[s.id]=v});c.att=c.att||{};c.att[window.__les]=o;c.mods.forEach(m=>m.aulas.forEach(a=>{if(a.id===window.__les&&a.status==='planejada')a.status='realizada'}));
+ return`<button class="b2" onclick="go('curso','${c.id}')">← Voltar</button><h2>Chamada: ${esc(c.nome)}</h2><div class="k">Aula ${a.n} · ${esc(a.titulo)} ${dbr(a.data)}</div>${enrolT(c).map(s=>`<div class="c"><b>${esc(s.nome)}</b><select id="a_${s.id}">${[['','—'],['P','Presente'],['F','Falta'],['J','Falta justificada'],['A','Atraso']].map(([v,l])=>`<option value="${v}" ${r[s.id]===v?'selected':''}>${l}</option>`).join('')}</select></div>`).join('')||'<div class="c k">Sem alunos ativos neste curso.</div>'}<button class="b" onclick="saveCham()">Salvar chamada</button>`}
+async function saveCham(){const c=clone(courses.find(x=>x.id===sel));const o={};enrolT(c).forEach(s=>{const v=$('#a_'+s.id).value;if(v)o[s.id]=v});c.att=c.att||{};c.att[window.__les]=o;c.mods.forEach(m=>m.aulas.forEach(a=>{if(a.id===window.__les&&a.status==='planejada')a.status='realizada'}));
  try{await db.collection('courses').doc(c.id).set(c);log('Chamada registrada/editada: '+c.nome+' aula '+window.__les.slice(1));msg='Chamada salva.';go('curso',c.id)}catch(e){alert('Erro')}}
 
 function bst(b){if(b.est)return'Cancelada';const p=b.pagos.reduce((a,x)=>a+x.valor,0);if(p>=b.valor-.005)return'Paga';const t=today();if(b.venc<t)return p>0?'Parcial/vencida':'Vencida';if((new Date(b.venc)-new Date(t))/864e5<=7)return'Vence em breve';return p>0?'Parcial':'Pendente'}
@@ -283,9 +284,71 @@ async function addUser(){const id=$('#u_id').value.trim(),n=$('#u_n').value.trim
  if(me.owner)perfil='dir';
  const err=e=>{msg='Erro de acesso: '+(e&&e.code);render()};
  const on=(c,f)=>db.collection(c).onSnapshot(sn=>{f(sn.docs.map(d=>d.data()));derive();render()},err);
- on('students',x=>students=x);on('expenses',x=>expRaw=x);on('courses',x=>courses=x);on('bills',x=>bills=x);on('audit',x=>audit=[...x]);
+ on('students',x=>students=x);on('expenses',x=>expRaw=x);on('courses',x=>courses=x);on('bills',x=>bills=x);on('audit',x=>audit=[...x]);on('turmas',x=>turmas=x);on('professores',x=>profs=x);
  on('users',x=>{users=x;if(!me.owner){const m=x.find(u=>u.id===me.id);perfil=m?m.perfil:'pendente'}});
  db.doc('config/main').onSnapshot(d=>{cfg=d.exists?d.data():{saldoInicial:0};render()},err);
 })();
+</script>
+<script>
+const DIAS={1:'Segunda-feira',2:'Terça-feira',3:'Quarta-feira'};
+const CP=['Aluguel','Água','Energia elétrica','Internet e telefone','Salários e pagamentos de colaboradores','Pagamento de professores','Materiais e produtos','Material didático','Marketing e publicidade','Manutenção e reparos','Impostos e taxas','Equipamentos e investimentos','Outras despesas'];
+const CR=['Mensalidades e parcelas de cursos','Matrículas','Inscrições','Cursos e treinamentos','Serviços de barbearia','Venda de produtos','Eventos','Outras receitas'];
+const catOpts=(l,cur)=>[...l,...(cur&&!l.includes(cur)?[cur]:[])].map(o=>`<option ${o===cur?'selected':''}>${esc(o)}</option>`).join('');
+let eb=null,ex=null;
+const turmaLabel=t=>t.id+' · '+t.turno+' '+t.hora;
+const cidOf=s=>s.cursoId||(courses.find(x=>x.nome===s.curso)||{}).id||'';
+function turmaOpts(cid,cur){if(!cid)return'<option value="">Escolha o curso primeiro</option>';const l=turmas.filter(t=>t.cursoId===cid&&t.status!=='cancelada');if(!l.length)return'<option value="">Nenhuma turma disponível para este curso</option>';return'<option value="">Selecione</option>'+l.map(t=>`<option value="${t.id}" ${cur===t.id?'selected':''}>${esc(turmaLabel(t)+' · '+DIAS[t.dia])}</option>`).join('')}
+function fillT(){$('#f_turma').innerHTML=turmaOpts($('#f_curso').value,'')}
+function enrolled(c){return students.filter(s=>(s.cursoId?s.cursoId===c.id:s.curso===c.nome)&&s.status==='ativo')}
+const enrolT=c=>enrolled(c).filter(s=>!window.__tm||s.turmaId===window.__tm);
+
+function vTurmas(){const o=(l,f)=>l.map(f).join('');
+ return`<h2>Turmas</h2><div class="c"><b>Nova turma</b><label>Curso</label><select id="t_curso">${o(courses.filter(c=>!c.arq),c=>`<option value="${c.id}">${esc(c.nome)}</option>`)}</select><label>Professor</label><select id="t_prof">${o(profs,p=>`<option value="${p.id}">${esc(p.nome)}</option>`)}</select><label>Dia da semana</label><select id="t_dia">${o([1,2,3],d=>`<option value="${d}">${DIAS[d]}</option>`)}</select><label>Turno</label><select id="t_turno">${o(['Manhã','Tarde','Noite'],x=>`<option>${x}</option>`)}</select><label>Horário (24h, HH:MM)</label><input id="t_hora" placeholder="19:00" maxlength="5"><label>Período letivo</label><input id="t_periodo" placeholder="2026.2"><div class="k">O código é gerado automaticamente.</div><button class="b" onclick="createTurma()">Criar turma</button></div>
+ <div class="c"><b>Professores</b>${o(profs,p=>`<div class="k">${esc(p.nome)}</div>`)}<input id="pr_n" placeholder="Nome do professor"><button class="b" onclick="addProf()">Adicionar professor</button></div>
+ ${o(turmas.slice().sort((a,b)=>a.id.localeCompare(b.id)),t=>{const c=courses.find(x=>x.id===t.cursoId)||{},p=profs.find(x=>x.id===t.profId)||{};return`<div class="c"><div class="row"><b>${t.id}</b><span class="tag">${t.status}</span></div><div class="k">${esc(c.nome)} · ${DIAS[t.dia]} · ${t.turno} ${t.hora} · prof. ${esc(p.nome)} · período ${esc(t.periodo)}</div>${t.status==='cancelada'?'':`<div class="row"><select onchange="saveT('${t.id}','profId',this.value)">${o(profs,x=>`<option value="${x.id}" ${x.id===t.profId?'selected':''}>${esc(x.nome)}</option>`)}</select><input value="${t.hora}" maxlength="5" onchange="saveT('${t.id}','hora',this.value)"><button class="b2" onclick="cancT('${t.id}')">Cancelar</button></div>`}</div>`})}`}
+async function createTurma(){const g=k=>$('#t_'+k).value.trim(),d=+g('dia'),h=g('hora');
+ if(!g('curso')||!g('prof')||![1,2,3].includes(d)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(h)||!g('periodo')){alert('Preencha curso, professor, dia, horário (HH:MM) e período.');return}
+ const yy=String(new Date().getFullYear()).slice(-2);
+ for(let k=0;k<5;k++){const n=turmas.filter(t=>t.dia===d&&t.ano===yy).reduce((m,t)=>Math.max(m,t.seq),0)+1+k,id=d+String(n).padStart(2,'0')+'-'+yy;
+  try{await db.collection('turmas').doc(id).create({id,cursoId:g('curso'),profId:g('prof'),dia:d,turno:g('turno'),hora:h,periodo:g('periodo'),seq:n,ano:yy,status:'ativa'});log('Turma criada: '+id);msg='Turma '+id+' criada.';render();return}
+  catch(e){if(!/duplicate|23505/i.test((e.message||'')+(e.code||''))){alert('Erro: '+(e.message||e.code));return}}}
+ alert('Não foi possível gerar o código. Tente de novo.')}
+async function addProf(){const n=$('#pr_n').value.trim();if(!n)return;const id=uid();try{await db.collection('professores').doc(id).set({id,nome:n});log('Professor cadastrado: '+n)}catch(e){alert('Erro')}}
+async function saveT(id,k,v){if(k==='hora'&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)){alert('Horário inválido (HH:MM).');render();return}const t=clone(turmas.find(x=>x.id===id));t[k]=v;try{await db.collection('turmas').doc(id).set(t);log('Turma '+id+' alterada ('+k+')')}catch(e){alert('Erro')}}
+async function cancT(id){if(!confirm('Cancelar a turma '+id+'? O código não será reutilizado.'))return;const t=clone(turmas.find(x=>x.id===id));t.status='cancelada';try{await db.collection('turmas').doc(id).set(t);log('Turma cancelada: '+id)}catch(e){alert('Erro')}}
+
+function vContas(){const L=bills.filter(b=>b.tipo===ctab).sort((a,b)=>a.venc.localeCompare(b.venc)),e=eb?bills.find(x=>x.id===eb):null,cats=ctab==='pagar'?CP:CR;
+ return`<h2>Contas</h2><div class="row"><button class="${ctab==='pagar'?'b':'b2'}" onclick="ctab='pagar';eb=null;render()">A pagar</button><button class="${ctab==='receber'?'b':'b2'}" onclick="ctab='receber';eb=null;render()">A receber</button></div><div class="c" style="margin-top:10px"><b>${e?'Editar conta':'Nova conta'}</b><label>Descrição</label><input id="b_d" value="${esc(e?e.desc:'')}"><label>Categoria</label><select id="b_c">${catOpts(cats,e?e.cat:'')}</select><label>Valor (R$)</label><input id="b_v" type="number" step="0.01" value="${e?e.valor:''}"><label>Vencimento</label><input id="b_t" type="date" value="${e?e.venc:today()}"><div class="row"><button class="b" onclick="addBill()">${e?'Salvar alteração':'Adicionar'}</button>${e?'<button class="b2" onclick="eb=null;render()">Cancelar edição</button>':''}</div></div>
+ ${L.map(b=>{const st=bst(b);return`<div class="c"><div class="row"><b>${esc(b.desc)}</b><span class="tag ${st==='Paga'?'ok':st.includes('encida')?'bad':''}">${st}</span></div><div class="k">${esc(b.cat)} · vence ${dbr(b.venc)} · ${brl(bpaid(b))} de ${brl(b.valor)}</div>${b.est?'':`${st==='Paga'?'':`<div class="row"><input id="bx_${b.id}" type="number" step="0.01" placeholder="valor da baixa"><button class="b" onclick="baixa('${b.id}')">Baixa</button></div>`}<div class="row"><button class="b2" onclick="editBill('${b.id}')">Editar</button><button class="b2" onclick="delBill('${b.id}')">Excluir</button><button class="b2" onclick="cancBill('${b.id}')">Cancelar</button></div>`}</div>`}).join('')||'<div class="c k">Nada lançado.</div>'}`}
+async function addBill(){const v=+$('#b_v').value,d=$('#b_d').value.trim(),t=$('#b_t').value,c=$('#b_c').value;if(!(v>0)||!d||!t){alert('Preencha descrição, valor e vencimento.');return}
+ const b0=eb?clone(bills.find(x=>x.id===eb)):null;
+ if(bills.some(x=>x.tipo===ctab&&!x.est&&x.id!==eb&&x.desc===d&&x.valor===v&&x.venc===t)){alert('Já existe uma conta igual (mesma descrição, valor e vencimento).');return}
+ if(b0&&v<bpaid(b0)-.005){alert('O valor não pode ser menor que o já pago ('+brl(bpaid(b0))+').');return}
+ const id=b0?b0.id:uid(),o=b0?{...b0,desc:d,cat:c,valor:v,venc:t}:{id,tipo:ctab,desc:d,cat:c,valor:v,venc:t,pagos:[]};
+ try{await db.collection('bills').doc(id).set(o);log('Conta '+ctab+(b0?' editada: ':' criada: ')+d);eb=null;render()}catch(e){alert('Erro: '+(e.message||e.code))}}
+function editBill(id){eb=id;ctab=bills.find(x=>x.id===id).tipo;render();scrollTo(0,0)}
+async function delBill(id){const b=bills.find(x=>x.id===id);if(b.pagos.length){alert('Esta conta já tem baixas. Para preservar o histórico, use Cancelar.');return}if(!confirm('Excluir "'+b.desc+'"?'))return;try{await db.collection('bills').doc(id).delete();log('Conta excluída: '+b.desc)}catch(e){alert('Erro')}}
+
+function vCaixa(){const t=today(),e=ex?expRaw.find(x=>x.id===ex):null;
+ const L=[...allIn().map(x=>({...x,tipo:'in'})),...expenses.filter(x=>!x.est&&x.data<=t).map(x=>({data:x.data,valor:x.valor,desc:x.desc+' ['+x.cat+']',forma:x.forma,tipo:'out',id:x.id}))].sort((a,b)=>b.data.localeCompare(a.data));
+ const fut=[...bills.filter(b=>b.tipo==='pagar'&&!b.est&&bpaid(b)<b.valor-.005).map(b=>({desc:b.desc,cat:b.cat,valor:r2(b.valor-bpaid(b)),data:b.venc,bill:1})),...expRaw.filter(x=>!x.est&&x.data>t).map(x=>({id:x.id,desc:x.desc,cat:x.cat,valor:x.valor,data:x.data}))].sort((a,b)=>a.data.localeCompare(b.data));
+ const prev=fut.reduce((a,x)=>a+x.valor,0),btn=id=>id&&!id.startsWith('bill_')?`<button class="b2" onclick="editExp('${id}')">Editar</button><button class="b2" onclick="delExp('${id}')">Excluir</button>`:'';
+ return`<h2>Fluxo de caixa</h2><div class="g"><div class="c"><div class="k">Saldo atual (realizado)</div><div class="v ac">${brl(saldoAtual())}</div></div><div class="c"><div class="k">Despesas futuras (previsto)</div><div class="v">${brl(prev)}</div></div></div>
+ <div class="c"><b>${e?'Editar despesa':'Lançar despesa'}</b><label>Descrição</label><input id="x_d" value="${esc(e?e.desc:'')}"><label>Categoria</label><select id="x_c">${catOpts(CP,e?e.cat:'')}</select><label>Valor (R$)</label><input id="x_v" type="number" step="0.01" value="${e?e.valor:''}"><label>Data</label><input id="x_t" type="date" value="${e?e.data:t}"><label>Forma</label><input id="x_f" value="${esc(e?e.forma:'')}"><div class="row"><button class="b" onclick="addExp()">Salvar</button>${e?'<button class="b2" onclick="ex=null;render()">Cancelar edição</button>':''}</div></div>
+ <h2>Despesas futuras</h2>${fut.map(x=>`<div class="c row"><span>${dbr(x.data)} · ${esc(x.desc)}<br><span class="k">${esc(x.cat)} · ${x.bill?'conta a pagar':'lançamento'}${x.data<t?' · vencida':''}</span></span><b>${brl(x.valor)}</b>${btn(x.id)}</div>`).join('')||'<div class="k">Nenhuma despesa prevista.</div>'}
+ <h2>Movimentações realizadas</h2><div class="k">Recebimentos de alunos entram automaticamente (sem duplicar).</div>
+ ${L.map(x=>`<div class="c row"><span>${dbr(x.data)} · ${esc(x.desc)}<br><span class="k">${esc(x.forma)}</span></span><b class="${x.tipo==='in'?'ok':'bad'}">${x.tipo==='in'?'+':'−'}${brl(x.valor)}</b>${x.tipo==='out'?btn(x.id):''}</div>`).join('')}`}
+async function addExp(){const v=+$('#x_v').value,d=$('#x_d').value.trim(),t=$('#x_t').value;if(!(v>0)||!d||!t){alert('Preencha descrição, valor e data.');return}
+ const id=ex||uid(),o={...(ex?expRaw.find(x=>x.id===ex):{}),id,desc:d,cat:$('#x_c').value,valor:v,data:t,forma:$('#x_f').value};
+ try{await dbe().doc(id).set(o);log('Despesa '+(ex?'editada: ':'lançada: ')+d);ex=null;render()}catch(e){alert('Erro: '+(e.message||e.code))}}
+function editExp(id){ex=id;render();scrollTo(0,0)}
+async function delExp(id){const e=expRaw.find(x=>x.id===id);if(!e||!confirm('Excluir a despesa "'+e.desc+'" ('+brl(e.valor)+')? Os saldos serão recalculados.'))return;try{await dbe().doc(id).delete();log('Despesa excluída: '+e.desc+' '+brl(e.valor))}catch(x){alert('Erro')}}
+
+const _vch=vChamada;vChamada=function(){const c=courses.find(x=>x.id===sel),l=turmas.filter(t=>t.cursoId===(c||{}).id&&t.status!=='cancelada');if(!l.find(t=>t.id===window.__tm))window.__tm=l[0]?l[0].id:'';
+ return _vch().replace('<div class="k">Aula ',(l.length?`<label>Turma</label><select onchange="window.__tm=this.value;render()">${l.map(t=>`<option value="${t.id}" ${t.id===window.__tm?'selected':''}>${esc(turmaLabel(t))}</option>`).join('')}</select>`:'')+'<div class="k">Aula ')};
+function freqRel(){const t=turmas.find(x=>x.id===window.__rt)||turmas[0];if(!t)return{t:'Frequência',h:['Aviso'],r:[['Cadastre uma turma primeiro.']]};const c=courses.find(x=>x.id===t.cursoId);
+ return{t:'Frequência — turma '+t.id+' ('+(c?c.nome:'')+')',h:['Aluno','Situação','Pres.','Faltas','Justif.','%','Frequência'],r:students.filter(s=>s.turmaId===t.id).map(s=>{const f=c?freq(c,s.id):{p:0,f:0,j:0,pc:null};return[s.nome,s.status,f.p,f.f,f.j,f.pc===null?'—':f.pc+'%',f.pc!==null&&c&&f.pc<c.min?'ABAIXO':'ok']})}}
+const _rd=relData;relData=function(){return window.__rel==='freq'?freqRel():_rd()};
+const _vr=vRel;vRel=function(){const h=_vr();if(window.__rel!=='freq')return h;const t=window.__rt||(turmas[0]||{}).id;return h.replace('<div class="row"><button class="b" onclick="window.print()">',`<label>Turma</label><select onchange="window.__rt=this.value;render()">${turmas.map(x=>`<option value="${x.id}" ${x.id===t?'selected':''}>${esc(turmaLabel(x))}</option>`).join('')}</select><div class="row"><button class="b" onclick="window.print()">`)};
 </script>
 </body></html>
