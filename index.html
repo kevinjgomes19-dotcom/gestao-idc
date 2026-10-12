@@ -211,7 +211,7 @@ async function exportCsv(){
 
 </script><script>
 let turmas=[],profs=[],courses=[],bills=[],users=[],audit=[],expRaw=[],me={id:'',name:'',owner:false},perfil='pendente',ctab='pagar';
-const PERM={dir:['painel','alunos','cursos','turmas','contas','caixa','rel','config'],fin:['painel','alunos','caixa','contas','rel'],ped:['cursos','turmas','rel'],prof:['cursos']};
+const PERM={dir:['painel','alunos','cursos','turmas','contas','caixa','rel','config'],fin:['painel','alunos','caixa','contas','rel'],ped:['cursos','turmas','rel'],prof:['cursos','turmas']};
 const PN={dir:'Diretor',fin:'Administrador financeiro',ped:'Administrador pedagógico',prof:'Professor'};
 const can=k=>(PERM[perfil]||[]).includes(k);
 const NAV=[['painel','Painel'],['alunos','Alunos'],['cursos','Cursos'],['turmas','Turmas'],['contas','Contas'],['caixa','Caixa'],['rel','Relatórios'],['config','Config']];
@@ -227,13 +227,13 @@ async function cancelExp(id){if(id.startsWith('bill_')){alert('Cancele pela tela
 
 function render(){
  const nav=NAV.filter(([k])=>can(k));
- const base={aluno:'alunos',form:'alunos',curso:'cursos',cform:'cursos',chamada:'cursos'}[view]||view;
+ const base={aluno:'alunos',form:'alunos',curso:'cursos',cform:'cursos',chamada:'turmas',turma:'turmas'}[view]||view;
  $('#nav').innerHTML=nav.map(([k,l])=>`<button class="${base===k?'on':''}" onclick="go('${k}')">${l}</button>`).join('');
  const a=$('#app');
  if(!db){a.innerHTML='<div class="c">Abra este link pelo claude.ai, logado na conta convidada, para acessar os dados.</div>';return}
  if(perfil==='pendente'){a.innerHTML=`<div class="c"><b>Aguardando liberação</b><div class="k">Envie este código ao diretor para liberar seu acesso:</div><div class="v ac">${esc(me.id)}</div></div>`;return}
  if(!can(base)){view=PERM[perfil][0];return render()}
- const V={painel:vPainel,alunos:vAlunos,aluno:vAluno,form:vForm,caixa:vCaixa,config:vConfig,cursos:vCursos,curso:vCurso,cform:vCForm,chamada:vChamada,contas:vContas,rel:vRel,turmas:vTurmas};
+ const V={painel:vPainel,alunos:vAlunos,aluno:vAluno,form:vForm,caixa:vCaixa,config:vConfig,cursos:vCursos,curso:vCurso,cform:vCForm,chamada:vChamada,contas:vContas,rel:vRel,turmas:vTurmas,turma:vTurma};
  a.innerHTML=(msg?`<div class="c ac">${esc(msg)}</div>`:'')+V[view]();msg='';
 }
 
@@ -353,4 +353,95 @@ const _vr=vRel;vRel=function(){const h=_vr();if(window.__rel!=='freq')return h;c
 <script>
 const _r=render;render=function(){try{_r()}catch(e){document.getElementById('app').innerHTML='<div class="c bad"><b>Erro no app:</b><br>'+esc(e.message)+'</div>'}};
 addEventListener('error',e=>{const a=document.getElementById('app');if(a)a.innerHTML='<div class="c bad"><b>Erro:</b><br>'+esc(e.message)+'</div>'});
-</script></body></html>
+</script><script>
+/* ===== Cursos fixos, turmas com andamento/chamada próprios ===== */
+const tOf=id=>turmas.find(x=>x.id===id);
+const cOf=t=>courses.find(x=>x.id===t.cursoId)||{nome:'(curso removido)',mods:[],min:75,just:false};
+const manageT=()=>perfil==='dir'||perfil==='ped';
+const TURNOS=['Manhã','Tarde','Noite'];
+window.__tf='ativa';window.__ft=false;window.__fp=false;window.__cd=null;
+const lessonsT=(c,t)=>lessons(c).map(a=>{const p=(t.prog||{})[a.id]||{};return{...a,data:p.data||'',status:p.status||'planejada'}});
+function freqT(c,t,sid){let p=0,f=0,j=0;lessonsT(c,t).forEach(a=>{const r=(t.att||{})[a.id];if(!done(a)||!r||!r[sid])return;const x=r[sid];if(x==='P'||x==='A')p++;else if(x==='F')f++;else j++});const den=p+f+(c.just?j:0);return{p,f,j,pc:den?Math.round(p/den*100):null}}
+
+/* ---------- Cursos ---------- */
+vCursos=function(){return`<div class="row"><h2>Cursos</h2><button class="b" onclick="go('cform')">+ Novo</button></div>${courses.filter(c=>!c.arq).map(c=>`<div class="c" onclick="window.__cd=null;go('curso','${c.id}')"><b>${esc(c.nome)}</b><div class="k">${c.mods.length} módulos · ${lessons(c).length} aulas · ${c.carga}h · prof. ${esc(c.prof)}</div><div class="k">${enrolled(c).length} alunos ativos</div></div>`).join('')||'<div class="c k">Nenhum curso.</div>'}`};
+vCForm=function(){const f=(k,l,t='text',v='')=>`<label>${l}</label><input id="c_${k}" type="${t}" value="${v}">`;return`<h2>Novo curso</h2><div class="c">${f('nome','Nome do curso *')}${f('prof','Professor responsável')}${f('carga','Carga horária total (h)','number')}${f('nmod','Quantidade de módulos *','number','1')}${f('tot','Total de aulas do curso *','number')}<div class="k">As aulas são divididas entre os módulos. Depois você ajusta dentro do curso.</div>${f('min','Frequência mínima (%)','number','75')}<label>Falta justificada</label><select id="c_just"><option value="0">Não entra no cálculo</option><option value="1">Conta como falta</option></select><div class="row"><button class="b2" onclick="go('cursos')">Cancelar</button><button class="b" onclick="saveCurso()">Criar</button></div></div>`};
+async function saveCurso(){const g=k=>$('#c_'+k).value.trim(),nm=parseInt(g('nmod')),tot=parseInt(g('tot'));
+ if(!g('nome')||!(nm>0)||!(tot>=nm)){alert('Informe nome, módulos e total de aulas (no mínimo uma aula por módulo).');return}
+ const id=uid(),b=Math.floor(tot/nm),r=tot%nm;let n=0;
+ const mods=[...Array(nm)].map((_,i)=>{const q=b+(i>=nm-r?1:0);return{nome:'Módulo '+(i+1),aulas:[...Array(q)].map(()=>{n++;return{id:'a'+n,n,titulo:'Aula '+n}})}});
+ const c={id,nome:g('nome'),prof:g('prof'),carga:+g('carga')||0,min:+g('min')||75,just:g('just')==='1',total:tot,mods};
+ try{await db.collection('courses').doc(id).set(c);log('Curso criado: '+c.nome);go('curso',id)}catch(e){alert('Erro: '+(e.message||e.code))}}
+
+const cdGet=id=>{if(!window.__cd||window.__cd.id!==id){const c=courses.find(x=>x.id===id);window.__cd=c?clone(c):null}return window.__cd};
+const cdN=c=>c.mods.reduce((s,m)=>s+m.aulas.length,0);
+const cdRenum=c=>{let n=0;c.mods.forEach(m=>m.aulas.forEach(a=>{n++;a.n=n;if(/^Aula \d+$/.test(a.titulo))a.titulo='Aula '+n}))};
+vCurso=function(){const c=cdGet(sel);if(!c)return'<div class="c">Curso não encontrado.</div>';
+ const n=cdN(c),tot=c.total||n,ok=n===tot,dirty=JSON.stringify(courses.find(x=>x.id===c.id))!==JSON.stringify(c);
+ return`<button class="b2" onclick="window.__cd=null;go('cursos')">← Voltar</button><h2>${esc(c.nome)}</h2><div class="c"><div class="k">${c.carga}h · prof. ${esc(c.prof)} · frequência mínima ${c.min}% · ${c.just?'justificada conta como falta':'justificada fora do cálculo'}</div><label>Total de aulas do curso</label><input type="number" value="${tot}" onchange="cdTotal(this.value)"><div class="${ok?'ok':'bad'}"><b>${n} de ${tot} aulas cadastradas</b>${ok?'':' — ajuste para poder salvar'}</div></div>
+ ${c.mods.map((m,mi)=>`<div class="row"><h2>${esc(m.nome)} <button class="b2" onclick="cdRenMod(${mi})">✎</button></h2><button class="b2" onclick="cdAdd(${mi})">+ Aula</button></div>${m.aulas.map((a,ai)=>`<div class="c row"><span>${a.n}. ${esc(a.titulo)}</span><span><button class="b2" onclick="cdRenAula(${mi},${ai})">✎</button> <button class="b2" onclick="cdDel(${mi},${ai})">✕</button></span></div>`).join('')||'<div class="k">Sem aulas.</div>'}`).join('')}
+ <div class="row"><button class="b2" onclick="window.__cd=null;render()">Descartar</button><button class="b" onclick="cdSave()" ${dirty?'':'disabled'}>Salvar alterações</button></div>
+ <div class="c" style="margin-top:14px"><button class="b2 bad" onclick="delCurso('${c.id}')">Apagar curso</button></div>`};
+function cdTotal(v){const c=cdGet(sel),n=parseInt(v);if(n>0)c.total=n;render()}
+function cdRenMod(mi){const c=cdGet(sel),v=prompt('Nome do módulo',c.mods[mi].nome);if(v&&v.trim()){c.mods[mi].nome=v.trim();render()}}
+function cdRenAula(mi,ai){const c=cdGet(sel),a=c.mods[mi].aulas[ai],v=prompt('Nome da aula',a.titulo);if(v&&v.trim()){a.titulo=v.trim();render()}}
+function cdAdd(mi){const c=cdGet(sel);c.mods[mi].aulas.push({id:'a'+uid(),n:0,titulo:'Aula 0'});cdRenum(c);render()}
+function cdDel(mi,ai){const c=cdGet(sel),a=c.mods[mi].aulas[ai];
+ const hasAtt=turmas.some(t=>t.cursoId===c.id&&t.att&&t.att[a.id]&&Object.keys(t.att[a.id]).length);
+ if(hasAtt&&!confirm('A aula "'+a.titulo+'" já tem chamada registrada em alguma turma. Ao remover, essa chamada deixa de contar. Remover mesmo assim?'))return;
+ c.mods[mi].aulas.splice(ai,1);cdRenum(c);render()}
+async function cdSave(){const c=cdGet(sel);if(!c)return;const n=cdN(c),tot=c.total||n;
+ if(n!==tot){alert('O curso precisa ter '+tot+' aulas para salvar. Hoje tem '+n+(n<tot?' (faltam '+(tot-n)+').':' (sobram '+(n-tot)+').'));return}
+ c.total=tot;
+ try{await db.collection('courses').doc(c.id).set(c);log('Curso alterado: '+c.nome);courses=courses.map(x=>x.id===c.id?clone(c):x);window.__cd=null;msg='Curso salvo.';render()}catch(e){alert('Erro: '+(e.message||e.code))}}
+async function delCurso(id){const c=courses.find(x=>x.id===id);if(!c)return;
+ const tt=turmas.filter(t=>t.cursoId===id),at=tt.filter(t=>t.status==='ativa');
+ if(at.length){alert('Este curso tem '+at.length+' turma(s) ativa(s): '+at.map(t=>t.id).join(', ')+'. Conclua ou cancele as turmas antes de apagar o curso.');return}
+ const al=students.filter(s=>cidOf(s)===id&&s.status==='ativo').length;
+ if(!confirm('Apagar o curso "'+c.nome+'"?'+(al?'\n\n'+al+' aluno(s) ativo(s) estão cadastrados nele e continuam no sistema.':'')+(tt.length?'\n\nTurmas concluídas ou canceladas deste curso perdem as informações do curso nos relatórios.':'')+'\n\nEsta ação não pode ser desfeita.'))return;
+ try{await db.collection('courses').doc(id).delete();log('Curso apagado: '+c.nome);window.__cd=null;msg='Curso apagado.';go('cursos')}catch(e){alert('Erro: '+(e.message||e.code))}}
+
+/* ---------- Turmas ---------- */
+function turmaOpts(cid,cur){if(!cid)return'<option value="">Escolha o curso primeiro</option>';const l=turmas.filter(t=>t.cursoId===cid&&(t.status==='ativa'||t.id===cur));if(!l.length)return'<option value="">Nenhuma turma disponível para este curso</option>';return'<option value="">Selecione</option>'+l.map(t=>`<option value="${t.id}" ${cur===t.id?'selected':''}>${esc(turmaLabel(t)+' · '+DIAS[t.dia])}</option>`).join('')}
+vTurmas=function(){const o=(l,f)=>l.map(f).join(''),m=manageT();
+ const head=(k,t)=>`<div class="row" onclick="window.${k}=!window.${k};render()" style="cursor:pointer"><b>${t}</b><span class="b2">${window[k]?'⌃':'⌄'}</span></div>`;
+ const list=turmas.filter(t=>(t.status||'ativa')===window.__tf).sort((a,b)=>(a.id.slice(-2)+a.id).localeCompare(b.id.slice(-2)+b.id));
+ return`<h2>Turmas</h2>${m?`<div class="c">${head('__ft','Nova turma')}${window.__ft?`<label>Curso</label><select id="t_curso">${o(courses.filter(c=>!c.arq),c=>`<option value="${c.id}">${esc(c.nome)}</option>`)}</select><label>Professor</label><select id="t_prof">${o(profs,p=>`<option value="${p.id}">${esc(p.nome)}</option>`)}</select><label>Período letivo</label><select id="t_per">${o([1,2,3,4],p=>`<option>${p}</option>`)}</select><label>Dia da semana</label><select id="t_dia">${o([1,2,3],d=>`<option value="${d}">${DIAS[d]}</option>`)}</select><label>Turno</label><select id="t_turno">${o([1,2,3],n=>`<option value="${n}">${TURNOS[n-1]}</option>`)}</select><label>Horário (24h, HH:MM)</label><input id="t_hora" placeholder="19:00" maxlength="5"><div class="k">Código: [período][dia][turno]-[ano]. Ex.: 123-26</div><button class="b" onclick="createTurma()">Criar turma</button>`:''}</div>
+ <div class="c">${head('__fp','Professores')}${window.__fp?`${o(profs,p=>`<div class="k">${esc(p.nome)}</div>`)}<input id="pr_n" placeholder="Nome do professor"><button class="b" onclick="addProf()">Adicionar professor</button>`:''}</div>`:''}
+ <select onchange="window.__tf=this.value;render()" style="font-weight:700">${[['ativa','Turmas Ativas'],['concluida','Turmas Concluídas'],['cancelada','Turmas Canceladas']].map(([v,l])=>`<option value="${v}" ${window.__tf===v?'selected':''}>${l}</option>`).join('')}</select>
+ ${o(list,t=>{const c=cOf(t),p=profs.find(x=>x.id===t.profId)||{},n=students.filter(s=>s.turmaId===t.id).length,a=t.status==='ativa';return`<div class="c"><div class="row"><b>${t.id}</b><span class="tag">${t.status}</span></div><div class="k">${esc(c.nome)} · ${DIAS[t.dia]} · ${t.turno} ${t.hora} · prof. ${esc(p.nome||'')} · período ${esc(String(t.periodo))}</div><div class="k">${n} aluno(s) · avanço ${pct(lessonsT(c,t))}%</div><div class="row"><button class="b" onclick="go('turma','${t.id}')">Abrir turma</button>${m&&a?`<button class="b2" onclick="cancT('${t.id}')">Cancelar</button>`:''}</div>${m&&a?`<div class="row"><select onchange="saveT('${t.id}','profId',this.value)">${o(profs,x=>`<option value="${x.id}" ${x.id===t.profId?'selected':''}>${esc(x.nome)}</option>`)}</select><input value="${t.hora}" maxlength="5" onchange="saveT('${t.id}','hora',this.value)"></div>`:''}</div>`})||''}${list.length?'':'<div class="c k">Nenhuma turma nesta situação.</div>'}`};
+async function createTurma(){const g=k=>$('#t_'+k).value.trim(),d=+g('dia'),tn=+g('turno'),p=+g('per'),h=g('hora');
+ if(!g('curso')||!g('prof')||![1,2,3].includes(d)||![1,2,3].includes(tn)||![1,2,3,4].includes(p)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(h)){alert('Preencha curso, professor, período, dia, turno e horário (HH:MM).');return}
+ const yy=String(new Date().getFullYear()).slice(-2),id=''+p+d+tn+'-'+yy;
+ try{await db.collection('turmas').doc(id).create({id,cursoId:g('curso'),profId:g('prof'),periodo:p,dia:d,turno:TURNOS[tn-1],hora:h,ano:yy,status:'ativa',prog:{},att:{}});log('Turma criada: '+id);msg='Turma '+id+' criada.';window.__ft=false;render()}
+ catch(e){if(/duplicate|23505|exist/i.test((e.message||'')+(e.code||'')))alert('Já existe uma turma com o código '+id+' (mesmo período, dia, turno e ano).');else alert('Erro: '+(e.message||e.code))}}
+vTurma=function(){const t=tOf(sel);if(!t)return'<div class="c">Turma não encontrada.</div>';
+ const c=cOf(t),ls=lessonsT(c,t),al=students.filter(s=>s.turmaId===t.id),act=t.status==='ativa',p=profs.find(x=>x.id===t.profId)||{};
+ return`<button class="b2" onclick="go('turmas')">← Voltar</button><div class="row"><h2>${t.id}</h2><span class="tag">${t.status}</span></div>
+ <div class="c"><div class="k">${esc(c.nome)} · ${DIAS[t.dia]} · ${t.turno} ${t.hora} · prof. ${esc(p.nome||'')} · período ${esc(String(t.periodo))}</div><div class="v">${pct(ls)}% de avanço</div><div class="k">${ls.filter(done).length} de ${ls.filter(a=>a.status!=='cancelada').length} aulas realizadas</div>
+ <div class="row">${can('rel')?`<button class="b2" onclick="window.__rel='freq';window.__rt='${t.id}';go('rel')">Relatório da turma</button>`:''}${act&&manageT()?`<button class="b" onclick="concT('${t.id}')">Concluir turma</button>`:''}</div></div>
+ <h2>Alunos (${al.length})</h2>${al.map(s=>`<div class="c row"><b>${esc(s.nome)}</b><span class="tag">${esc(s.status)}</span></div>`).join('')||'<div class="c k">Nenhum aluno cadastrado nesta turma.</div>'}
+ ${c.mods.map((m,mi)=>`<h2>${esc(m.nome)} <span class="k">${pct(ls.filter(a=>a.mi===mi))}%</span></h2>${ls.filter(a=>a.mi===mi).map(a=>`<div class="c"><div class="row"><b>${a.n}. ${esc(a.titulo)}</b>${act?`<button class="b2" onclick="window.__les='${a.id}';go('chamada','${t.id}')">Chamada</button>`:''}</div>${act?`<div class="row"><input type="date" style="width:48%" value="${a.data}" onchange="saveLesT('${t.id}','${a.id}','data',this.value)"><select style="width:48%" onchange="saveLesT('${t.id}','${a.id}','status',this.value)">${['planejada','realizada','cancelada','reposta'].map(o=>`<option ${a.status===o?'selected':''}>${o}</option>`).join('')}</select></div>`:`<div class="k">${a.data?dbr(a.data)+' · ':''}${a.status}</div>`}</div>`).join('')}`).join('')}
+ <h2>Frequência</h2>${al.filter(s=>s.status==='ativo').map(s=>{const f=freqT(c,t,s.id),low=f.pc!==null&&f.pc<c.min;return`<div class="c row"><span>${esc(s.nome)}<br><span class="k">${f.p} pres · ${f.f} faltas · ${f.j} justif.</span></span><b class="${low?'bad':'ok'}">${f.pc===null?'—':f.pc+'%'}</b></div>`}).join('')||'<div class="k">Nenhum aluno ativo.</div>'}`};
+async function saveLesT(tid,aid,k,v){const t=clone(tOf(tid));t.prog=t.prog||{};t.prog[aid]={...(t.prog[aid]||{}),[k]:v};
+ try{await db.collection('turmas').doc(tid).set(t);if(k==='status'){const a=lessons(cOf(t)).find(x=>x.id===aid)||{};log('Turma '+tid+' · aula '+a.n+': '+v)}}catch(e){alert('Erro')}}
+async function concT(id){const t=clone(tOf(id)),f=lessonsT(cOf(t),t).filter(a=>a.status!=='cancelada'&&!done(a)).length;
+ if(!confirm('Concluir a turma '+id+'?'+(f?'\n\nAinda há '+f+' aula(s) sem realizar.':'')+'\n\nEla sai das turmas ativas e fica guardada em "Turmas Concluídas".'))return;
+ t.status='concluida';t.concluidaEm=today();
+ try{await db.collection('turmas').doc(id).set(t);log('Turma concluída: '+id);msg='Turma '+id+' concluída.';go('turmas')}catch(e){alert('Erro')}}
+
+/* ---------- Chamada por turma ---------- */
+vChamada=function(){const t=tOf(sel),c=t&&cOf(t),a=t&&lessonsT(c,t).find(x=>x.id===window.__les);if(!a)return'';
+ const r=(t.att||{})[a.id]||{},al=students.filter(s=>s.turmaId===t.id&&s.status==='ativo');
+ return`<button class="b2" onclick="go('turma','${t.id}')">← Voltar</button><h2>Chamada: ${t.id}</h2><div class="k">${esc(c.nome)} · Aula ${a.n} · ${esc(a.titulo)} ${a.data?dbr(a.data):''}</div>${al.map(s=>`<div class="c"><b>${esc(s.nome)}</b><select id="a_${s.id}">${[['','—'],['P','Presente'],['F','Falta'],['J','Falta justificada'],['A','Atraso']].map(([v,l])=>`<option value="${v}" ${r[s.id]===v?'selected':''}>${l}</option>`).join('')}</select></div>`).join('')||'<div class="c k">Sem alunos ativos nesta turma.</div>'}<button class="b" onclick="saveCham()">Salvar chamada</button>`};
+async function saveCham(){const t=clone(tOf(sel)),o={};
+ students.filter(s=>s.turmaId===t.id&&s.status==='ativo').forEach(s=>{const v=$('#a_'+s.id).value;if(v)o[s.id]=v});
+ t.att=t.att||{};t.att[window.__les]=o;t.prog=t.prog||{};const p=t.prog[window.__les]||{};if(!p.status||p.status==='planejada')p.status='realizada';t.prog[window.__les]=p;
+ try{await db.collection('turmas').doc(t.id).set(t);const a=lessons(cOf(t)).find(x=>x.id===window.__les)||{};log('Chamada registrada/editada: turma '+t.id+' aula '+a.n);msg='Chamada salva.';go('turma',t.id)}catch(e){alert('Erro')}}
+
+/* ---------- Relatório da turma ---------- */
+function freqRel(){const t=turmas.find(x=>x.id===window.__rt)||turmas[0];if(!t)return{t:'Frequência',h:['Aviso'],r:[['Cadastre uma turma primeiro.']]};
+ const c=cOf(t),ls=lessonsT(c,t);
+ return{t:'Frequência — turma '+t.id+' ('+c.nome+') · '+t.status+' · avanço '+pct(ls)+'%',h:['Aluno','Situação','Pres.','Faltas','Justif.','%','Frequência'],r:students.filter(s=>s.turmaId===t.id).map(s=>{const f=freqT(c,t,s.id);return[s.nome,s.status,f.p,f.f,f.j,f.pc===null?'—':f.pc+'%',f.pc!==null&&f.pc<c.min?'ABAIXO':'ok']})}}
+</script>
+</body></html>
