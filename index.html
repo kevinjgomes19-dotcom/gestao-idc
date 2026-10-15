@@ -72,7 +72,7 @@ const clone=o=>JSON.parse(JSON.stringify(o));
 const r2=n=>Math.round(n*100)/100;
 function addM(iso,k){const[y,m,d]=iso.split('-').map(Number);const t=new Date(y,m-1+k,1);const last=new Date(t.getFullYear(),t.getMonth()+1,0).getDate();const dd=Math.min(d,last);return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(dd).padStart(2,'0')}
 function cpfOk(c){c=(c||'').replace(/\D/g,'');if(c.length!==11||/^(\d)\1+$/.test(c))return false;for(let t=9;t<11;t++){let s=0;for(let i=0;i<t;i++)s+=c[i]*(t+1-i);if(((s*10)%11)%10!=c[t])return false}return true}
-let db=null,students=[],expenses=[],cfg={saldoInicial:0},view='painel',sel=null,msg='';
+let db=null,andam=[],students=[],expenses=[],cfg={saldoInicial:0},view='painel',sel=null,msg='';
 const dbs=()=>db.collection('students'),dbe=()=>db.collection('expenses');
 
 function paidOf(s,n){return r2((s.pays||[]).filter(p=>p.inst===n&&!p.est).reduce((a,p)=>a+p.valor,0))}
@@ -85,7 +85,7 @@ function saldoAtual(){const t=today();const e=allIn().filter(x=>x.data<=t).reduc
 function render(){
  $('#nav').innerHTML=[['painel','Painel'],['alunos','Alunos'],['caixa','Caixa'],['config','Config']].map(([k,l])=>`<button class="${view.startsWith(k)?'on':''}" onclick="go('${k}')">${l}</button>`).join('');
  const a=$('#app');
- if(!db){a.innerHTML='<div class="c">Abra este link pelo claude.ai, logado na conta convidada, para acessar os dados.</div>';return}
+ if(!db){a.innerHTML='<div class="c">'+(window.__dbFail?'Não foi possível conectar. Recarregue a página.':'Carregando…')+'</div>';return}
  a.innerHTML=(msg?`<div class="c ac">${esc(msg)}</div>`:'')+({painel:vPainel,alunos:vAlunos,aluno:vAluno,form:vForm,caixa:vCaixa,config:vConfig}[view]||vPainel)();msg='';
 }
 function go(v,id){view=v;sel=id||null;render();scrollTo(0,0)}
@@ -117,7 +117,7 @@ function vAlunos(){
  const l=students.filter(s=>!q||(s.nome+s.cpf+s.turma).toLowerCase().includes(q)).sort((a,b)=>a.nome.localeCompare(b.nome));
  return`<div class="row"><h2>Alunos</h2><button class="b" onclick="go('form')">+ Novo</button></div>
  <input placeholder="Pesquisar nome, CPF ou turma" value="${esc(window.__q||'')}" oninput="window.__q=this.value;render();document.querySelector('input').focus()">
- ${l.map(s=>{const d=saldoDev(s);return`<div class="c" onclick="go('aluno','${s.id}')"><div class="row"><b>${esc(s.nome)}</b><span class="tag">${esc(s.status)}</span></div><div class="k">${esc(s.curso)} · ${esc(s.turma)}</div><div class="row"><span class="ok">Recebido ${brl(recebido(s))}</span><span class="${d>0?'bad':''}">Falta ${brl(d)}</span></div></div>`}).join('')||'<div class="c k">Nenhum aluno.</div>'}`}
+ ${l.map(s=>{const d=saldoDev(s);return`<div class="c" onclick="go('aluno','${s.id}')"><div class="row"><b>${esc(s.nome)}</b><span class="tag">${esc(s.status)}</span></div>${atrasoRow(s)}<div class="k">${esc(s.curso)} · ${esc(s.turma)}</div><div class="row"><span class="ok">Recebido ${brl(recebido(s))}</span><span class="${d>0?'bad':''}">Falta ${brl(d)}</span></div></div>`}).join('')||'<div class="c k">Nenhum aluno.</div>'}`}
 
 function vForm(){
  const s=sel?students.find(x=>x.id===sel):{};const v=k=>esc(s[k]??'');
@@ -127,7 +127,7 @@ function vForm(){
  ${f('cep','CEP')}${f('rua','Rua')}${f('num','Número')}${f('compl','Complemento')}${f('bairro','Bairro')}${f('cidade','Cidade')}${f('uf','Estado')}
  <label>Curso *</label><select id="f_curso" onchange="fillT()"><option value="">Selecione</option>${courses.filter(c=>!c.arq).map(c=>`<option value="${c.id}" ${cidOf(s)===c.id?'selected':''}>${esc(c.nome)}</option>`).join('')}</select><label>Turma *</label><select id="f_turma">${turmaOpts(cidOf(s),s.turmaId)}</select>${f('matricula','Data de matrícula','date')}
  ${sel?'':`${f('total','Valor total do curso (R$) *','number')}${f('valorMat','Valor da matrícula (R$)','number')}${f('n','Quantidade de parcelas *','number')}${f('venc1','Data do 1º vencimento *','date')}`}
- <label>Forma de pagamento</label><select id="f_forma">${['Pix','Cartão de crédito','Dinheiro',...(s.forma&&!['Pix','Cartão de crédito','Dinheiro'].includes(s.forma)?[s.forma]:[])].map(o=>`<option ${s.forma===o?'selected':''}>${esc(o)}</option>`).join('')}</select>
+ <label>Forma de pagamento</label><select id="f_forma">${[...FORMAS,...(s.forma&&!FORMAS.includes(s.forma)?[s.forma]:[])].map(o=>`<option ${s.forma===o?'selected':''}>${esc(o)}</option>`).join('')}</select>
  <label ${sel?'':'hidden'}>Situação</label><select id="f_status" ${sel?'':'hidden'}>${['ativo','concluído','trancado','cancelado'].map(o=>`<option ${s.status===o?'selected':''}>${o}</option>`).join('')}</select>
  <label>Observações</label><textarea id="f_obs">${v('obs')}</textarea>
  <div class="row"><button class="b2" onclick="go('${sel?'aluno':'alunos'}','${sel||''}')">Cancelar</button><button class="b" onclick="saveStudent()">Salvar</button></div></div>`}
@@ -137,7 +137,7 @@ async function saveStudent(){
  const keys=['nome','cpf','tel','email','cep','rua','num','compl','bairro','cidade','uf','curso','turma','matricula','forma','status','obs'];
  const o=sel?clone(students.find(x=>x.id===sel)):{id:uid(),pays:[],inst:[]};
  const oc=o.curso,ot=o.turma;keys.forEach(k=>o[k]=g(k).trim());if(!sel)o.status='ativo';
- if(!o.nome){alert('Preencha o nome.');return}if(o.curso||!sel){const c=courses.find(x=>x.id===o.curso),t=turmas.find(x=>x.id===o.turma);if(!c||!t){alert('Selecione o curso e a turma.');return}if(t.cursoId!==c.id){alert('A turma escolhida pertence a outro curso.');return}o.cursoId=c.id;o.turmaId=t.id;o.curso=c.nome;o.turma=turmaLabel(t)}else{o.curso=oc;o.turma=ot}
+ if(!o.nome){alert('Preencha o nome.');return}if(o.curso||!sel){const c=courses.find(x=>x.id===o.curso),t=turmas.find(x=>x.id===o.turma);if(!c||!t){alert('Selecione o curso e a turma.');return}if(t.cursoId!==c.id){alert('A turma escolhida pertence a outro curso.');return}if(t.max&&o.turmaId!==t.id&&students.filter(x=>x.turmaId===t.id&&x.status==='ativo'&&x.id!==o.id).length>=t.max){alert('A turma '+t.id+' já atingiu o máximo de '+t.max+' alunos.');return}o.cursoId=c.id;o.turmaId=t.id;o.curso=c.nome;o.turma=turmaLabel(t)}else{o.curso=oc;o.turma=ot}
  if(!cpfOk(o.cpf)){alert('CPF inválido.');return}
  if(!sel){
   const total=+g('total'),vm=+g('valorMat')||0,n=parseInt(g('n'));
@@ -154,18 +154,18 @@ function vAluno(){
  const s=students.find(x=>x.id===sel);if(!s)return'<div class="c">Aluno não encontrado.</div>';
  const pend=s.inst.filter(i=>paidOf(s,i.n)<i.valor-0.005);
  return`<button class="b2" onclick="go('alunos')">← Voltar</button><h2>${esc(s.nome)}</h2>
- <div class="c"><div class="k">${esc(s.curso)} · ${esc(s.turma)} · ${esc(s.status)}</div><div class="k">CPF ${esc(s.cpf)} · ${esc(s.tel)}</div><div class="k">Matrícula ${dbr(s.matricula)} · Total ${brl(s.total)}</div>
+ <div class="c"><div class="k">${esc(s.curso)} · ${esc(s.turma)} · ${esc(s.status)}</div>${atrasoRow(s)}<div class="k">CPF ${esc(s.cpf)} · ${esc(s.tel)}</div><div class="k">Matrícula ${dbr(s.matricula)} · Total ${brl(s.total)}</div>
  <div class="row"><span class="ok">Recebido ${brl(recebido(s))}</span><b class="${saldoDev(s)>0?'bad':''}">Saldo devedor ${brl(saldoDev(s))}</b></div>
  <div class="row" style="margin-top:8px"><button class="b2" onclick="go('form','${s.id}')">Editar</button><button class="b2" onclick="delStudent('${s.id}')">Excluir</button></div></div>
  <h2>Parcelas</h2><div class="sc">${s.inst.map(i=>{const st=instStatus(s,i);return`<div class="c row"><span>${i.n}/${s.inst.length} · ${dbr(i.due)}<br><span class="k">${brl(paidOf(s,i.n))} de ${brl(i.valor)}</span></span><span class="tag ${st==='Paga'?'ok':st.includes('encida')?'bad':''}">${st}</span></div>`}).join('')}</div>
  ${pend.length?`<h2>Registrar pagamento</h2><div class="c"><label>Parcela</label><select id="p_i">${pend.map(i=>`<option value="${i.n}">${i.n} · ${dbr(i.due)} · falta ${brl(i.valor-paidOf(s,i.n))}</option>`).join('')}</select>
- <label>Valor (R$) — pode ser parcial</label><input id="p_v" type="number" step="0.01"><label>Data</label><input id="p_d" type="date" value="${today()}"><label>Forma</label><input id="p_f" value="${esc(s.forma)}"><label>Observação (desconto, multa, juros…)</label><input id="p_o"><button class="b" onclick="addPay()">Registrar</button></div>`:''}
+ <label>Valor (R$) — pode ser parcial</label><input id="p_v" type="number" step="0.01"><label>Data</label><input id="p_d" type="date" max="${today()}" value="${today()}"><label>Forma</label><select id="p_f">${[...FORMAS,...(s.forma&&!FORMAS.includes(s.forma)?[s.forma]:[])].map(o=>`<option ${s.forma===o?'selected':''}>${esc(o)}</option>`).join('')}</select><label>Observação (desconto, multa, juros…)</label><input id="p_o"><button class="b" onclick="addPay()">Registrar</button></div>`:''}
  <h2>Histórico</h2>${(s.pays||[]).slice().sort((a,b)=>b.data.localeCompare(a.data)).map(p=>`<div class="c row"><span>${dbr(p.data)} · ${brl(p.valor)} · ${p.inst?'parc. '+p.inst:'matrícula'}<br><span class="k">${esc(p.forma)} ${esc(p.obs)} ${p.est?'· ESTORNADO em '+dbr(p.est):''}</span></span>${p.est?'':`<button class="b2" onclick="estorno('${p.id}')">Estornar</button>`}</div>`).join('')||'<div class="k">Sem pagamentos.</div>'}`}
 
 async function addPay(){
  const s=clone(students.find(x=>x.id===sel));const n=+$('#p_i').value,v=+$('#p_v').value,d=$('#p_d').value;
  const i=s.inst.find(x=>x.n===n);const falta=r2(i.valor-paidOf(s,n));
- if(!(v>0)||!d){alert('Informe valor e data.');return}
+ if(!(v>0)||!d){alert('Informe valor e data.');return}if(d>today()){alert('A data do pagamento não pode ser futura.');return}
  if(v>falta+0.005&&!confirm('Valor maior que o saldo da parcela ('+brl(falta)+'). Registrar assim mesmo?'))return;
  s.pays.push({id:uid(),inst:n,data:d,valor:v,forma:$('#p_f').value,obs:$('#p_o').value});
  try{await dbs().doc(s.id).set(s);log('Pagamento '+brl(v)+' de '+s.nome);msg='Pagamento registrado.';render()}catch(e){alert('Erro: '+(e.message||e.code))}
@@ -196,11 +196,11 @@ async function addExp(){
  if(!(v>0)||!d||!t){alert('Preencha descrição, valor e data.');return}
  const id=uid();try{await dbe().doc(id).set({id,desc:d,cat:$('#x_c').value,valor:v,data:t,forma:$('#x_f').value});log('Despesa lançada: '+d)}catch(e){alert('Erro: '+(e.message||e.code))}
 }
-async function cancelExp(id){if(!confirm('Cancelar este lançamento? Fica registrado como cancelado.'))return;const e=clone(expenses.find(x=>x.id===id));e.est=today();try{await dbe().doc(id).set(e)}catch(x){alert('Erro')}}
+async function cancelExp(id){if(!confirm('Cancelar este lançamento? Fica registrado como cancelado.'))return;const e=clone(expenses.find(x=>x.id===id));e.est=today();try{await dbe().doc(id).set(e)}catch(x){alert(erroTxt(x))}}
 
 function vConfig(){return`<h2>Configurações</h2><div class="c"><label>Saldo inicial da escola (R$)</label><input id="c_s" type="number" step="0.01" value="${+cfg.saldoInicial||0}"><button class="b" onclick="saveCfg()">Salvar</button></div>
  <div class="c"><b>Exportar dados</b><div class="k">Cópia de segurança em CSV (alunos e pagamentos).</div><button class="b" onclick="exportCsv()">Baixar CSV</button></div>`}
-async function saveCfg(){try{await db.doc('config/main').set({saldoInicial:+$('#c_s').value||0});msg='Salvo.';render()}catch(e){alert('Erro')}}
+async function saveCfg(){try{await db.doc('config/main').set({saldoInicial:+$('#c_s').value||0});msg='Salvo.';render()}catch(e){alert(erroTxt(e))}}
 async function exportCsv(){
  const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
  const rows=[['Aluno','CPF','Curso','Turma','Situação','Data','Parcela','Valor pago','Forma','Estornado']];
@@ -211,7 +211,7 @@ async function exportCsv(){
 
 </script><script>
 let turmas=[],profs=[],courses=[],bills=[],users=[],audit=[],expRaw=[],me={id:'',name:'',owner:false},perfil='pendente',ctab='pagar';
-const PERM={dir:['painel','alunos','cursos','turmas','contas','caixa','rel','config'],fin:['painel','alunos','caixa','contas','rel'],ped:['cursos','turmas','rel'],prof:['cursos','turmas']};
+const PERM={dir:['painel','alunos','cursos','turmas','contas','caixa','rel','config'],fin:['painel','alunos','caixa','contas','rel'],ped:['cursos','turmas','rel'],prof:['turmas']};
 const PN={dir:'Diretor',fin:'Administrador financeiro',ped:'Administrador pedagógico',prof:'Professor'};
 const can=k=>(PERM[perfil]||[]).includes(k);
 const NAV=[['painel','Painel'],['alunos','Alunos'],['cursos','Cursos'],['turmas','Turmas'],['contas','Contas'],['caixa','Caixa'],['rel','Relatórios'],['config','Config']];
@@ -221,17 +221,17 @@ const lessons=c=>c.mods.flatMap((m,mi)=>m.aulas.map(a=>({...a,mi})));
 const pct=ls=>{const v=ls.filter(a=>a.status!=='cancelada');return v.length?Math.round(v.filter(done).length/v.length*100):0};
 const enrolled=c=>students.filter(s=>(s.cursoId?s.cursoId===c.id:s.curso===c.nome)&&s.status==='ativo');
 function freq(c,sid){let p=0,f=0,j=0;lessons(c).forEach(a=>{const r=(c.att||{})[a.id];if(!done(a)||!r||!r[sid])return;const x=r[sid];if(x==='P'||x==='A')p++;else if(x==='F')f++;else j++});const den=p+f+(c.just?j:0);return{p,f,j,pc:den?Math.round(p/den*100):null}}
-function derive(){expenses=[...expRaw];bills.filter(b=>!b.est&&b.tipo==='pagar').forEach(b=>b.pagos.forEach(p=>expenses.push({id:'bill_'+b.id,desc:b.desc,cat:b.cat,valor:p.valor,data:p.data,forma:'',bill:1})))}
-function allIn(){const o=[];students.forEach(s=>(s.pays||[]).filter(p=>!p.est).forEach(p=>o.push({data:p.data,valor:p.valor,desc:'Aluno: '+s.nome+(p.inst?' (parc. '+p.inst+')':' (matrícula)'),forma:p.forma})));bills.filter(b=>b.tipo==='receber'&&!b.est).forEach(b=>b.pagos.forEach(p=>o.push({data:p.data,valor:p.valor,desc:'Recebido: '+b.desc,forma:''})));return o}
-async function cancelExp(id){if(id.startsWith('bill_')){alert('Cancele pela tela Contas.');return}if(!confirm('Cancelar este lançamento? Fica registrado como cancelado.'))return;const e=clone(expRaw.find(x=>x.id===id));e.est=today();try{await dbe().doc(id).set(e);log('Despesa cancelada: '+e.desc)}catch(x){alert('Erro')}}
+function derive(){expenses=[...expRaw];bills.filter(b=>!b.est&&b.tipo==='pagar').forEach(b=>b.pagos.forEach(p=>expenses.push({id:'bill_'+b.id,desc:b.desc,cat:b.cat,valor:p.valor,data:p.data,forma:p.forma||'',bill:1})))}
+function allIn(){const o=[];students.forEach(s=>(s.pays||[]).filter(p=>!p.est).forEach(p=>o.push({data:p.data,valor:p.valor,desc:'Aluno: '+s.nome+(p.inst?' (parc. '+p.inst+')':' (matrícula)'),forma:p.forma})));bills.filter(b=>b.tipo==='receber'&&!b.est).forEach(b=>b.pagos.forEach(p=>o.push({data:p.data,valor:p.valor,desc:'Recebido: '+b.desc,forma:p.forma||''})));return o}
+async function cancelExp(id){if(id.startsWith('bill_')){alert('Cancele pela tela Contas.');return}if(!confirm('Cancelar este lançamento? Fica registrado como cancelado.'))return;const e=clone(expRaw.find(x=>x.id===id));e.est=today();try{await dbe().doc(id).set(e);log('Despesa cancelada: '+e.desc)}catch(x){alert(erroTxt(x))}}
 
 function render(){
  const nav=NAV.filter(([k])=>can(k));
  const base={aluno:'alunos',form:'alunos',curso:'cursos',cform:'cursos',chamada:'turmas',turma:'turmas'}[view]||view;
  $('#nav').innerHTML=nav.map(([k,l])=>`<button class="${base===k?'on':''}" onclick="go('${k}')">${l}</button>`).join('');
  const a=$('#app');
- if(!db){a.innerHTML='<div class="c">Abra este link pelo claude.ai, logado na conta convidada, para acessar os dados.</div>';return}
- if(perfil==='pendente'){a.innerHTML=`<div class="c"><b>Aguardando liberação</b><div class="k">Envie este código ao diretor para liberar seu acesso:</div><div class="v ac">${esc(me.id)}</div></div>`;return}
+ if(!db){a.innerHTML='<div class="c">'+(window.__dbFail?'Não foi possível conectar. Recarregue a página.':'Carregando…')+'</div>';return}
+ if(perfil==='pendente'){a.innerHTML=`<div class="c"><b>Aguardando liberação</b><div class="k">Toque no botão e envie o código ao diretor para liberar seu acesso.</div><button class="b" onclick="copyId()">Copiar código</button></div>`;return}
  if(!can(base)){view=PERM[perfil][0];return render()}
  const V={painel:vPainel,alunos:vAlunos,aluno:vAluno,form:vForm,caixa:vCaixa,config:vConfig,cursos:vCursos,curso:vCurso,cform:vCForm,chamada:vChamada,contas:vContas,rel:vRel,turmas:vTurmas,turma:vTurma};
  a.innerHTML=(msg?`<div class="c ac">${esc(msg)}</div>`:'')+V[view]();msg='';
@@ -246,20 +246,20 @@ function vCurso(){const c=courses.find(x=>x.id===sel);if(!c)return'<div class="c
  return`<button class="b2" onclick="go('cursos')">← Voltar</button><h2>${esc(c.nome)}</h2><div class="c"><div class="k">${c.carga}h · prof. ${esc(c.prof)} · frequência mínima ${c.min}% · ${c.just?'justificada conta como falta':'justificada fora do cálculo'}</div><div class="v">${pct(ls)}% concluído</div></div>
  ${c.mods.map((m,mi)=>`<h2>${esc(m.nome)} <span class="k">${pct(ls.filter(a=>a.mi===mi))}%</span></h2>${m.aulas.map(a=>`<div class="c"><div class="row"><b>${a.n}. ${esc(a.titulo)}</b><button class="b2" onclick="window.__les='${a.id}';go('chamada','${c.id}')">Chamada</button></div><div class="row"><input type="date" style="width:48%" value="${a.data}" onchange="saveLes('${c.id}','${a.id}','data',this.value)"><select style="width:48%" onchange="saveLes('${c.id}','${a.id}','status',this.value)">${['planejada','realizada','cancelada','reposta'].map(o=>`<option ${a.status===o?'selected':''}>${o}</option>`).join('')}</select></div></div>`).join('')}`).join('')}
  <h2>Frequência</h2>${enrolled(c).map(s=>{const f=freq(c,s.id);const low=f.pc!==null&&f.pc<c.min;return`<div class="c row"><span>${esc(s.nome)}<br><span class="k">${f.p} pres · ${f.f} faltas · ${f.j} justif.</span></span><b class="${low?'bad':'ok'}">${f.pc===null?'—':f.pc+'%'}</b></div>`}).join('')||'<div class="k">Nenhum aluno ativo com este curso no cadastro.</div>'}`}
-async function saveLes(cid,aid,k,v){const c=clone(courses.find(x=>x.id===cid));c.mods.forEach(m=>m.aulas.forEach(a=>{if(a.id===aid)a[k]=v}));try{await db.collection('courses').doc(cid).set(c);if(k==='status')log(`Aula ${aid.slice(1)} de ${c.nome}: ${v}`)}catch(e){alert('Erro')}}
+async function saveLes(cid,aid,k,v){const c=clone(courses.find(x=>x.id===cid));c.mods.forEach(m=>m.aulas.forEach(a=>{if(a.id===aid)a[k]=v}));try{await db.collection('courses').doc(cid).set(c);if(k==='status')log(`Aula ${aid.slice(1)} de ${c.nome}: ${v}`)}catch(e){alert(erroTxt(e))}}
 function vChamada(){const c=courses.find(x=>x.id===sel),a=c&&lessons(c).find(x=>x.id===window.__les);if(!a)return'';const r=(c.att||{})[a.id]||{};
  return`<button class="b2" onclick="go('curso','${c.id}')">← Voltar</button><h2>Chamada: ${esc(c.nome)}</h2><div class="k">Aula ${a.n} · ${esc(a.titulo)} ${dbr(a.data)}</div>${enrolT(c).map(s=>`<div class="c"><b>${esc(s.nome)}</b><select id="a_${s.id}">${[['','—'],['P','Presente'],['F','Falta'],['J','Falta justificada'],['A','Atraso']].map(([v,l])=>`<option value="${v}" ${r[s.id]===v?'selected':''}>${l}</option>`).join('')}</select></div>`).join('')||'<div class="c k">Sem alunos ativos neste curso.</div>'}<button class="b" onclick="saveCham()">Salvar chamada</button>`}
 async function saveCham(){const c=clone(courses.find(x=>x.id===sel));const o={};enrolT(c).forEach(s=>{const v=$('#a_'+s.id).value;if(v)o[s.id]=v});c.att=c.att||{};c.att[window.__les]=o;c.mods.forEach(m=>m.aulas.forEach(a=>{if(a.id===window.__les&&a.status==='planejada')a.status='realizada'}));
- try{await db.collection('courses').doc(c.id).set(c);log('Chamada registrada/editada: '+c.nome+' aula '+window.__les.slice(1));msg='Chamada salva.';go('curso',c.id)}catch(e){alert('Erro')}}
+ try{await db.collection('courses').doc(c.id).set(c);log('Chamada registrada/editada: '+c.nome+' aula '+window.__les.slice(1));msg='Chamada salva.';go('curso',c.id)}catch(e){alert(erroTxt(e))}}
 
 function bst(b){if(b.est)return'Cancelada';const p=b.pagos.reduce((a,x)=>a+x.valor,0);if(p>=b.valor-.005)return'Paga';const t=today();if(b.venc<t)return p>0?'Parcial/vencida':'Vencida';if((new Date(b.venc)-new Date(t))/864e5<=7)return'Vence em breve';return p>0?'Parcial':'Pendente'}
 const bpaid=b=>r2(b.pagos.reduce((a,x)=>a+x.valor,0));
 function vContas(){const L=bills.filter(b=>b.tipo===ctab).sort((a,b)=>a.venc.localeCompare(b.venc));
  return`<h2>Contas</h2><div class="row"><button class="${ctab==='pagar'?'b':'b2'}" onclick="ctab='pagar';render()">A pagar</button><button class="${ctab==='receber'?'b':'b2'}" onclick="ctab='receber';render()">A receber</button></div><div class="c" style="margin-top:10px"><label>Descrição</label><input id="b_d"><label>Categoria</label><input id="b_c"><label>Valor (R$)</label><input id="b_v" type="number" step="0.01"><label>Vencimento</label><input id="b_t" type="date" value="${today()}"><button class="b" onclick="addBill()">Adicionar</button></div>
- ${L.map(b=>{const st=bst(b);return`<div class="c"><div class="row"><b>${esc(b.desc)}</b><span class="tag ${st==='Paga'?'ok':st.includes('encida')?'bad':''}">${st}</span></div><div class="k">${esc(b.cat)} · vence ${dbr(b.venc)} · ${brl(bpaid(b))} de ${brl(b.valor)}</div>${st==='Paga'||b.est?'':`<div class="row"><input id="bx_${b.id}" type="number" step="0.01" placeholder="valor da baixa"><button class="b" onclick="baixa('${b.id}')">Baixa</button><button class="b2" onclick="cancBill('${b.id}')">Cancelar</button></div>`}</div>`}).join('')||'<div class="c k">Nada lançado.</div>'}`}
-async function addBill(){const v=+$('#b_v').value,d=$('#b_d').value.trim(),t=$('#b_t').value;if(!(v>0)||!d||!t){alert('Preencha descrição, valor e vencimento.');return}const id=uid();try{await db.collection('bills').doc(id).set({id,tipo:ctab,desc:d,cat:$('#b_c').value,valor:v,venc:t,pagos:[]});log('Conta '+ctab+' criada: '+d)}catch(e){alert('Erro')}}
-async function baixa(id){const v=+$('#bx_'+id).value;if(!(v>0)){alert('Informe o valor.');return}const b=clone(bills.find(x=>x.id===id));b.pagos.push({data:today(),valor:v});try{await db.collection('bills').doc(id).set(b);log('Baixa '+brl(v)+' em '+b.desc)}catch(e){alert('Erro')}}
-async function cancBill(id){if(!confirm('Cancelar esta conta? Fica no histórico.'))return;const b=clone(bills.find(x=>x.id===id));b.est=today();try{await db.collection('bills').doc(id).set(b);log('Conta cancelada: '+b.desc)}catch(e){alert('Erro')}}
+ ${L.map(b=>{const st=bst(b);return`<div class="c"><div class="row"><b>${esc(b.desc)}</b><span class="tag ${st==='Paga'?'ok':st.includes('encida')?'bad':''}">${st}</span></div><div class="k">${esc(b.cat)} · vence ${dbr(b.venc)} · ${brl(bpaid(b))} de ${brl(b.valor)}</div>${st==='Paga'||b.est?'':`<div class="row"><input id="bx_${b.id}" type="number" step="0.01" placeholder="valor da baixa"><select id="bf_${b.id}">${FORMAS.map(o=>`<option>${o}</option>`).join('')}</select><button class="b" onclick="baixa('${b.id}')">Baixa</button><button class="b2" onclick="cancBill('${b.id}')">Cancelar</button></div>`}</div>`}).join('')||'<div class="c k">Nada lançado.</div>'}`}
+async function addBill(){const v=+$('#b_v').value,d=$('#b_d').value.trim(),t=$('#b_t').value;if(!(v>0)||!d||!t){alert('Preencha descrição, valor e vencimento.');return}const id=uid();try{await db.collection('bills').doc(id).set({id,tipo:ctab,desc:d,cat:$('#b_c').value,valor:v,venc:t,pagos:[]});log('Conta '+ctab+' criada: '+d)}catch(e){alert(erroTxt(e))}}
+async function baixa(id){const v=+$('#bx_'+id).value;if(!(v>0)){alert('Informe o valor.');return}const b=clone(bills.find(x=>x.id===id));b.pagos.push({data:today(),valor:v,forma:($('#bf_'+id)||{}).value||''});try{await db.collection('bills').doc(id).set(b);log('Baixa '+brl(v)+' em '+b.desc)}catch(e){alert(erroTxt(e))}}
+async function cancBill(id){if(!confirm('Cancelar esta conta? Fica no histórico.'))return;const b=clone(bills.find(x=>x.id===id));b.est=today();try{await db.collection('bills').doc(id).set(b);log('Conta cancelada: '+b.desc)}catch(e){alert(erroTxt(e))}}
 
 window.__rel='inad';
 function relData(){const k=window.__rel,t=today();
@@ -272,19 +272,19 @@ function vRel(){const d=relData();return`<h2 class="np">Relatórios</h2><div cla
 async function relCsv(){const d=relData(),q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';try{const x=await claude.use('downloads');await x.save({filename:'relatorio-'+window.__rel+'.csv',data:'\ufeff'+[d.h,...d.r].map(r=>r.map(q).join(';')).join('\n')})}catch(e){alert('Não foi possível baixar aqui.')}}
 
 function vConfig(){return`<h2>Configurações</h2><div class="c"><label>Saldo inicial da escola (R$)</label><input id="c_s" type="number" step="0.01" value="${+cfg.saldoInicial||0}"><button class="b" onclick="saveCfg()">Salvar</button></div><div class="c"><b>Exportar pagamentos</b><br><button class="b" onclick="exportCsv()">Baixar CSV</button></div>
- ${me.owner?`<h2>Usuários e perfis</h2>${users.map(u=>`<div class="c"><div class="k">${esc(u.nome)} · ${esc(u.id)}</div><select onchange="setUser('${u.id}',this.value)">${[['pendente','Bloqueado'],...Object.entries(PN)].map(([v,l])=>`<option value="${v}" ${u.perfil===v?'selected':''}>${l}</option>`).join('')}</select></div>`).join('')}<div class="c"><label>Código do novo usuário (ele vê na tela de espera)</label><input id="u_id"><label>Nome</label><input id="u_n"><button class="b" onclick="addUser()">Liberar como Professor</button></div>
+ ${me.owner?`<h2>Usuários e perfis</h2>${users.map(u=>`<div class="c"><div class="k">${esc(u.nome)} · ${esc(u.id)}</div><select onchange="setUser('${u.id}',this.value)">${[['pendente','Bloqueado'],...Object.entries(PN)].map(([v,l])=>`<option value="${v}" ${u.perfil===v?'selected':''}>${l}</option>`).join('')}</select>${u.perfil==='prof'?linkSel(u):''}</div>`).join('')}<div class="c"><label>Código do novo usuário (ele vê na tela de espera)</label><input id="u_id"><label>Nome</label><input id="u_n"><button class="b" onclick="addUser()">Liberar como Professor</button></div>
  <h2>Auditoria</h2>${audit.sort((a,b)=>b.ts.localeCompare(a.ts)).slice(0,60).map(a=>`<div class="c"><div class="k">${new Date(a.ts).toLocaleString('pt-BR')} · ${esc(a.user)}</div>${esc(a.acao)}</div>`).join('')||'<div class="k">Sem registros.</div>'}`:''}`}
-async function setUser(id,p){const u=clone(users.find(x=>x.id===id));u.perfil=p;try{await db.collection('users').doc(id).set(u);log('Perfil de '+u.nome+' → '+(PN[p]||'bloqueado'))}catch(e){alert('Erro')}}
-async function addUser(){const id=$('#u_id').value.trim(),n=$('#u_n').value.trim();if(!id||!n){alert('Informe código e nome.');return}try{await db.collection('users').doc(id).set({id,nome:n,perfil:'prof'});log('Usuário liberado: '+n)}catch(e){alert('Erro')}}
+async function setUser(id,p){const u=clone(users.find(x=>x.id===id));u.perfil=p;try{await db.collection('users').doc(id).set(u);log('Perfil de '+u.nome+' → '+(PN[p]||'bloqueado'))}catch(e){alert(erroTxt(e))}}
+async function addUser(){const id=$('#u_id').value.trim(),n=$('#u_n').value.trim();if(!id||!n){alert('Informe código e nome.');return}try{await db.collection('users').doc(id).set({id,nome:n,perfil:'prof'});log('Usuário liberado: '+n)}catch(e){alert(erroTxt(e))}}
 
 (async()=>{
  render();
  try{db=await claude.use('db');const U=await claude.use('user');if(U){me.id=String(await U.id());try{me.name=(await U.me()).name||''}catch(e){}me.owner=!!U.isOwner()}}catch(e){db=null}
- if(!db){render();return}
+ if(!db){window.__dbFail=1;render();return}
  if(me.owner)perfil='dir';
  const err=e=>{msg='Erro de acesso: '+(e&&e.code);render()};
  const on=(c,f)=>db.collection(c).onSnapshot(sn=>{f(sn.docs.map(d=>d.data()));derive();render()},err);
- on('students',x=>students=x);on('expenses',x=>expRaw=x);on('courses',x=>courses=x);on('bills',x=>bills=x);on('audit',x=>audit=[...x]);on('turmas',x=>turmas=x);on('professores',x=>profs=x);
+ on('students',x=>students=x);on('expenses',x=>expRaw=x);on('courses',x=>courses=x);on('bills',x=>bills=x);on('audit',x=>audit=[...x]);on('turmas',x=>turmas=x);on('professores',x=>profs=x);on('andamento',x=>andam=x);
  on('users',x=>{users=x;if(!me.owner){const m=x.find(u=>u.id===me.id);perfil=m?m.perfil:'pendente'}});
  db.doc('config/main').onSnapshot(d=>{cfg=d.exists?d.data():{saldoInicial:0};render()},err);
 })();
@@ -312,13 +312,13 @@ async function createTurma(){const g=k=>$('#t_'+k).value.trim(),d=+g('dia'),h=g(
   try{await db.collection('turmas').doc(id).create({id,cursoId:g('curso'),profId:g('prof'),dia:d,turno:g('turno'),hora:h,periodo:g('periodo'),seq:n,ano:yy,status:'ativa'});log('Turma criada: '+id);msg='Turma '+id+' criada.';render();return}
   catch(e){if(!/duplicate|23505/i.test((e.message||'')+(e.code||''))){alert('Erro: '+(e.message||e.code));return}}}
  alert('Não foi possível gerar o código. Tente de novo.')}
-async function addProf(){const n=$('#pr_n').value.trim();if(!n)return;const id=uid();try{await db.collection('professores').doc(id).set({id,nome:n});log('Professor cadastrado: '+n)}catch(e){alert('Erro')}}
-async function saveT(id,k,v){if(k==='hora'&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)){alert('Horário inválido (HH:MM).');render();return}const t=clone(turmas.find(x=>x.id===id));t[k]=v;try{await db.collection('turmas').doc(id).set(t);log('Turma '+id+' alterada ('+k+')')}catch(e){alert('Erro')}}
-async function cancT(id){if(!confirm('Cancelar a turma '+id+'? O código não será reutilizado.'))return;const t=clone(turmas.find(x=>x.id===id));t.status='cancelada';try{await db.collection('turmas').doc(id).set(t);log('Turma cancelada: '+id)}catch(e){alert('Erro')}}
+async function addProf(){const n=$('#pr_n').value.trim();if(!n)return;const id=uid();try{await db.collection('professores').doc(id).set({id,nome:n});log('Professor cadastrado: '+n)}catch(e){alert(erroTxt(e))}}
+async function saveT(id,k,v){if(k==='hora'&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)){alert('Horário inválido (HH:MM).');render();return}const t=clone(turmas.find(x=>x.id===id));t[k]=v;try{await db.collection('turmas').doc(id).set(t);log('Turma '+id+' alterada ('+k+')')}catch(e){alert(erroTxt(e))}}
+async function cancT(id){if(!confirm('Cancelar a turma '+id+'? O código não será reutilizado.'))return;const t=clone(turmas.find(x=>x.id===id));t.status='cancelada';try{await db.collection('turmas').doc(id).set(t);log('Turma cancelada: '+id)}catch(e){alert(erroTxt(e))}}
 
 function vContas(){const L=bills.filter(b=>b.tipo===ctab).sort((a,b)=>a.venc.localeCompare(b.venc)),e=eb?bills.find(x=>x.id===eb):null,cats=ctab==='pagar'?CP:CR;
  return`<h2>Contas</h2><div class="row"><button class="${ctab==='pagar'?'b':'b2'}" onclick="ctab='pagar';eb=null;render()">A pagar</button><button class="${ctab==='receber'?'b':'b2'}" onclick="ctab='receber';eb=null;render()">A receber</button></div><div class="c" style="margin-top:10px"><b>${e?'Editar conta':'Nova conta'}</b><label>Descrição</label><input id="b_d" value="${esc(e?e.desc:'')}"><label>Categoria</label><select id="b_c">${catOpts(cats,e?e.cat:'')}</select><label>Valor (R$)</label><input id="b_v" type="number" step="0.01" value="${e?e.valor:''}"><label>Vencimento</label><input id="b_t" type="date" value="${e?e.venc:today()}"><div class="row"><button class="b" onclick="addBill()">${e?'Salvar alteração':'Adicionar'}</button>${e?'<button class="b2" onclick="eb=null;render()">Cancelar edição</button>':''}</div></div>
- ${L.map(b=>{const st=bst(b);return`<div class="c"><div class="row"><b>${esc(b.desc)}</b><span class="tag ${st==='Paga'?'ok':st.includes('encida')?'bad':''}">${st}</span></div><div class="k">${esc(b.cat)} · vence ${dbr(b.venc)} · ${brl(bpaid(b))} de ${brl(b.valor)}</div>${b.est?'':`${st==='Paga'?'':`<div class="row"><input id="bx_${b.id}" type="number" step="0.01" placeholder="valor da baixa"><button class="b" onclick="baixa('${b.id}')">Baixa</button></div>`}<div class="row"><button class="b2" onclick="editBill('${b.id}')">Editar</button><button class="b2" onclick="delBill('${b.id}')">Excluir</button><button class="b2" onclick="cancBill('${b.id}')">Cancelar</button></div>`}</div>`}).join('')||'<div class="c k">Nada lançado.</div>'}`}
+ ${L.map(b=>{const st=bst(b);return`<div class="c"><div class="row"><b>${esc(b.desc)}</b><span class="tag ${st==='Paga'?'ok':st.includes('encida')?'bad':''}">${st}</span></div><div class="k">${esc(b.cat)} · vence ${dbr(b.venc)} · ${brl(bpaid(b))} de ${brl(b.valor)}</div>${b.est?'':`${st==='Paga'?'':`<div class="row"><input id="bx_${b.id}" type="number" step="0.01" placeholder="valor da baixa"><select id="bf_${b.id}">${FORMAS.map(o=>`<option>${o}</option>`).join('')}</select><button class="b" onclick="baixa('${b.id}')">Baixa</button></div>`}<div class="row"><button class="b2" onclick="editBill('${b.id}')">Editar</button><button class="b2" onclick="delBill('${b.id}')">Excluir</button><button class="b2" onclick="cancBill('${b.id}')">Cancelar</button></div>`}</div>`}).join('')||'<div class="c k">Nada lançado.</div>'}`}
 async function addBill(){const v=+$('#b_v').value,d=$('#b_d').value.trim(),t=$('#b_t').value,c=$('#b_c').value;if(!(v>0)||!d||!t){alert('Preencha descrição, valor e vencimento.');return}
  const b0=eb?clone(bills.find(x=>x.id===eb)):null;
  if(bills.some(x=>x.tipo===ctab&&!x.est&&x.id!==eb&&x.desc===d&&x.valor===v&&x.venc===t)){alert('Já existe uma conta igual (mesma descrição, valor e vencimento).');return}
@@ -326,14 +326,14 @@ async function addBill(){const v=+$('#b_v').value,d=$('#b_d').value.trim(),t=$('
  const id=b0?b0.id:uid(),o=b0?{...b0,desc:d,cat:c,valor:v,venc:t}:{id,tipo:ctab,desc:d,cat:c,valor:v,venc:t,pagos:[]};
  try{await db.collection('bills').doc(id).set(o);log('Conta '+ctab+(b0?' editada: ':' criada: ')+d);eb=null;render()}catch(e){alert('Erro: '+(e.message||e.code))}}
 function editBill(id){eb=id;ctab=bills.find(x=>x.id===id).tipo;render();scrollTo(0,0)}
-async function delBill(id){const b=bills.find(x=>x.id===id);if(b.pagos.length){alert('Esta conta já tem baixas. Para preservar o histórico, use Cancelar.');return}if(!confirm('Excluir "'+b.desc+'"?'))return;try{await db.collection('bills').doc(id).delete();log('Conta excluída: '+b.desc)}catch(e){alert('Erro')}}
+async function delBill(id){const b=bills.find(x=>x.id===id);if(b.pagos.length){alert('Esta conta já tem baixas. Para preservar o histórico, use Cancelar.');return}if(!confirm('Excluir "'+b.desc+'"?'))return;try{await db.collection('bills').doc(id).delete();log('Conta excluída: '+b.desc)}catch(e){alert(erroTxt(e))}}
 
 function vCaixa(){const t=today(),e=ex?expRaw.find(x=>x.id===ex):null;
  const L=[...allIn().map(x=>({...x,tipo:'in'})),...expenses.filter(x=>!x.est&&x.data<=t).map(x=>({data:x.data,valor:x.valor,desc:x.desc+' ['+x.cat+']',forma:x.forma,tipo:'out',id:x.id}))].sort((a,b)=>b.data.localeCompare(a.data));
  const fut=[...bills.filter(b=>b.tipo==='pagar'&&!b.est&&bpaid(b)<b.valor-.005).map(b=>({desc:b.desc,cat:b.cat,valor:r2(b.valor-bpaid(b)),data:b.venc,bill:1})),...expRaw.filter(x=>!x.est&&x.data>t).map(x=>({id:x.id,desc:x.desc,cat:x.cat,valor:x.valor,data:x.data}))].sort((a,b)=>a.data.localeCompare(b.data));
  const prev=fut.reduce((a,x)=>a+x.valor,0),btn=id=>id&&!id.startsWith('bill_')?`<button class="b2" onclick="editExp('${id}')">Editar</button><button class="b2" onclick="delExp('${id}')">Excluir</button>`:'';
  return`<h2>Fluxo de caixa</h2><div class="g"><div class="c"><div class="k">Saldo atual (realizado)</div><div class="v ac">${brl(saldoAtual())}</div></div><div class="c"><div class="k">Despesas futuras (previsto)</div><div class="v">${brl(prev)}</div></div></div>
- <div class="c"><b>${e?'Editar despesa':'Lançar despesa'}</b><label>Descrição</label><input id="x_d" value="${esc(e?e.desc:'')}"><label>Categoria</label><select id="x_c">${catOpts(CP,e?e.cat:'')}</select><label>Valor (R$)</label><input id="x_v" type="number" step="0.01" value="${e?e.valor:''}"><label>Data</label><input id="x_t" type="date" value="${e?e.data:t}"><label>Forma</label><input id="x_f" value="${esc(e?e.forma:'')}"><div class="row"><button class="b" onclick="addExp()">Salvar</button>${e?'<button class="b2" onclick="ex=null;render()">Cancelar edição</button>':''}</div></div>
+ <div class="c"><b>${e?'Editar despesa':'Lançar despesa'}</b><label>Descrição</label><input id="x_d" value="${esc(e?e.desc:'')}"><label>Categoria</label><select id="x_c">${catOpts(CP,e?e.cat:'')}</select><label>Valor (R$)</label><input id="x_v" type="number" step="0.01" value="${e?e.valor:''}"><label>Data</label><input id="x_t" type="date" value="${e?e.data:t}"><label>Forma</label><select id="x_f"><option value="">Não informada</option>${[...FORMAS,...(e&&e.forma&&!FORMAS.includes(e.forma)?[e.forma]:[])].map(o=>`<option ${e&&e.forma===o?'selected':''}>${esc(o)}</option>`).join('')}</select><div class="row"><button class="b" onclick="addExp()">Salvar</button>${e?'<button class="b2" onclick="ex=null;render()">Cancelar edição</button>':''}</div></div>
  <h2>Despesas futuras</h2>${fut.map(x=>`<div class="c row"><span>${dbr(x.data)} · ${esc(x.desc)}<br><span class="k">${esc(x.cat)} · ${x.bill?'conta a pagar':'lançamento'}${x.data<t?' · vencida':''}</span></span><b>${brl(x.valor)}</b>${btn(x.id)}</div>`).join('')||'<div class="k">Nenhuma despesa prevista.</div>'}
  <h2>Movimentações realizadas</h2><div class="k">Recebimentos de alunos entram automaticamente (sem duplicar).</div>
  ${L.map(x=>`<div class="c row"><span>${dbr(x.data)} · ${esc(x.desc)}<br><span class="k">${esc(x.forma)}</span></span><b class="${x.tipo==='in'?'ok':'bad'}">${x.tipo==='in'?'+':'−'}${brl(x.valor)}</b>${x.tipo==='out'?btn(x.id):''}</div>`).join('')}`}
@@ -341,7 +341,7 @@ async function addExp(){const v=+$('#x_v').value,d=$('#x_d').value.trim(),t=$('#
  const id=ex||uid(),o={...(ex?expRaw.find(x=>x.id===ex):{}),id,desc:d,cat:$('#x_c').value,valor:v,data:t,forma:$('#x_f').value};
  try{await dbe().doc(id).set(o);log('Despesa '+(ex?'editada: ':'lançada: ')+d);ex=null;render()}catch(e){alert('Erro: '+(e.message||e.code))}}
 function editExp(id){ex=id;render();scrollTo(0,0)}
-async function delExp(id){const e=expRaw.find(x=>x.id===id);if(!e||!confirm('Excluir a despesa "'+e.desc+'" ('+brl(e.valor)+')? Os saldos serão recalculados.'))return;try{await dbe().doc(id).delete();log('Despesa excluída: '+e.desc+' '+brl(e.valor))}catch(x){alert('Erro')}}
+async function delExp(id){const e=expRaw.find(x=>x.id===id);if(!e||!confirm('Excluir a despesa "'+e.desc+'" ('+brl(e.valor)+')? Os saldos serão recalculados.'))return;try{await dbe().doc(id).delete();log('Despesa excluída: '+e.desc+' '+brl(e.valor))}catch(x){alert(erroTxt(x))}}
 
 const _vch=vChamada;vChamada=function(){const c=courses.find(x=>x.id===sel),l=turmas.filter(t=>t.cursoId===(c||{}).id&&t.status!=='cancelada');if(!l.find(t=>t.id===window.__tm))window.__tm=l[0]?l[0].id:'';
  return _vch().replace('<div class="k">Aula ',(l.length?`<label>Turma</label><select onchange="window.__tm=this.value;render()">${l.map(t=>`<option value="${t.id}" ${t.id===window.__tm?'selected':''}>${esc(turmaLabel(t))}</option>`).join('')}</select>`:'')+'<div class="k">Aula ')};
@@ -354,32 +354,60 @@ const _vr=vRel;vRel=function(){const h=_vr();if(window.__rel!=='freq')return h;c
 const _r=render;render=function(){try{_r()}catch(e){document.getElementById('app').innerHTML='<div class="c bad"><b>Erro no app:</b><br>'+esc(e.message)+'</div>'}};
 addEventListener('error',e=>{const a=document.getElementById('app');if(a)a.innerHTML='<div class="c bad"><b>Erro:</b><br>'+esc(e.message)+'</div>'});
 </script><script>
-/* ===== Cursos fixos, turmas com andamento/chamada próprios ===== */
+/* ===== Atualização: cursos fixos, turmas, professores, caixa, avaliações ===== */
+const addD=(d,n)=>new Date(new Date(d).getTime()+n*864e5).toISOString().slice(0,10);
 const tOf=id=>turmas.find(x=>x.id===id);
-const cOf=t=>courses.find(x=>x.id===t.cursoId)||{nome:'(curso removido)',mods:[],min:75,just:false};
+const cOf=t=>courses.find(x=>x.id===t.cursoId)||{nome:'(curso removido)',mods:[],min:75,just:false,avals:[]};
 const manageT=()=>perfil==='dir'||perfil==='ped';
 const TURNOS=['Manhã','Tarde','Noite'];
-window.__tf='ativa';window.__ft=false;window.__fp=false;window.__cd=null;
-const lessonsT=(c,t)=>lessons(c).map(a=>{const p=(t.prog||{})[a.id]||{};return{...a,data:p.data||'',status:p.status||'planejada'}});
-function freqT(c,t,sid){let p=0,f=0,j=0;lessonsT(c,t).forEach(a=>{const r=(t.att||{})[a.id];if(!done(a)||!r||!r[sid])return;const x=r[sid];if(x==='P'||x==='A')p++;else if(x==='F')f++;else j++});const den=p+f+(c.just?j:0);return{p,f,j,pc:den?Math.round(p/den*100):null}}
+const FORMAS=['Pix','Cartão de crédito','Cartão de débito','Dinheiro','Transferência','Boleto'];
+const profsOf=t=>t.profIds&&t.profIds.length?t.profIds:(t.profId?[t.profId]:[]);
+const profNames=t=>profsOf(t).map(id=>(profs.find(p=>p.id===id)||{}).nome).filter(Boolean).join(', ')||'—';
+const myProf=()=>profs.find(p=>p.userId===me.id);
+const visT=t=>perfil!=='prof'||(!!myProf()&&profsOf(t).includes(myProf().id));
+const ocupadas=t=>students.filter(s=>s.turmaId===t.id&&s.status==='ativo').length;
+window.__tf='ativa';window.__ft=false;window.__fp=false;window.__cd=null;window.__sec={};window.__ob={};window.__cx=false;window.__cxp='mes';
+window.__nf={profs:['']};
+function erroTxt(e){const m=(e&&(e.message||e.code))||'',c=(e&&e.code)||'';if(/row-level|42501|permission|policy/i.test(m+' '+c))return'Sem permissão para gravar isso. Avise o diretor.';return'Erro ao salvar'+(m?': '+m:'.')}
+function copyId(){const t=me.id;if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t).then(()=>alert('Código copiado. Envie ao diretor.'),()=>prompt('Copie o código:',t));else prompt('Copie o código:',t)}
+
+/* ---------- Andamento por turma (data, chamada, observação, notas) ---------- */
+const A=t=>andam.find(y=>y.id===t.id)||{prog:t.prog||{},att:t.att||{},notas:{}};
+const lessonsT=(c,t)=>lessons(c).map(a=>{const p=(A(t).prog||{})[a.id]||{};return{...a,data:p.data||'',status:p.status||'planejada',obs:p.obs||''}});
+function freqT(c,t,sid){let p=0,f=0,j=0;const at=A(t).att||{};lessonsT(c,t).forEach(a=>{const r=at[a.id];if(!done(a)||!r||!r[sid])return;const x=r[sid];if(x==='P'||x==='A')p++;else if(x==='F')f++;else j++});const den=p+f+(c.just?j:0);return{p,f,j,pc:den?Math.round(p/den*100):null}}
+const notaOf=(t,sid,vid)=>{const n=((A(t).notas||{})[sid]||{})[vid];return typeof n==='number'?n:null};
+const mediaT=(t,sid,avs)=>{const v=avs.map(a=>notaOf(t,sid,a.id)).filter(n=>n!==null);return v.length?Math.round(v.reduce((a,b)=>a+b,0)/v.length*10)/10:null};
+async function andSet(tid,fn){const t=tOf(tid),cur=andam.find(x=>x.id===tid);const b=cur?clone(cur):{id:tid,prog:clone(t.prog||{}),att:clone(t.att||{})};b.prog=b.prog||{};b.att=b.att||{};b.notas=b.notas||{};fn(b);await db.collection('andamento').doc(tid).set(b);andam=andam.filter(x=>x.id!==tid).concat([clone(b)])}
+async function saveLesT(tid,aid,k,v){try{await andSet(tid,b=>{b.prog[aid]={...(b.prog[aid]||{}),[k]:v}});if(k==='status'){const a=lessons(cOf(tOf(tid))).find(x=>x.id===aid)||{};log('Turma '+tid+' · aula '+a.n+': '+v)}}catch(e){alert(erroTxt(e))}}
+async function saveObs(tid,aid,v){try{await andSet(tid,b=>{b.prog[aid]={...(b.prog[aid]||{}),obs:v.trim()}});msg='Observação salva.';render()}catch(e){alert(erroTxt(e))}}
+async function saveNota(tid,sid,vid,raw){const t=tOf(tid),av=(cOf(t).avals||[]).find(x=>x.id===vid);if(!av)return;const s=String(raw).trim().replace(',','.');
+ if(s!==''){const n=parseFloat(s);if(isNaN(n)||n<0||n>av.max){alert('A nota deve ficar entre 0 e '+av.max+'.');render();return}}
+ try{await andSet(tid,b=>{b.notas[sid]=b.notas[sid]||{};if(s==='')delete b.notas[sid][vid];else b.notas[sid][vid]=Math.round(parseFloat(s)*100)/100});render()}catch(e){alert(erroTxt(e))}}
+async function saveCham(){const t=tOf(sel),o={};students.filter(s=>s.turmaId===t.id&&s.status==='ativo').forEach(s=>{const v=$('#a_'+s.id).value;if(v)o[s.id]=v});const lid=window.__les;
+ try{await andSet(t.id,b=>{b.att[lid]=o;const p=b.prog[lid]||{};if(!p.status||p.status==='planejada')p.status='realizada';b.prog[lid]=p});const a=lessons(cOf(t)).find(x=>x.id===lid)||{};log('Chamada registrada/editada: turma '+t.id+' aula '+a.n);msg='Chamada salva.';go('turma',t.id)}catch(e){alert(erroTxt(e))}}
+
+/* ---------- Alunos: atraso ---------- */
+function atraso(s){if(s.status==='cancelado')return null;const t=today();let v=0,q=0,old=null;(s.inst||[]).forEach(i=>{const f=r2(i.valor-paidOf(s,i.n));if(f>0.005&&i.due<t){v+=f;q++;if(!old||i.due<old)old=i.due}});if(!q)return null;return{v:r2(v),q,dias:Math.max(0,Math.floor((new Date(t)-new Date(old))/864e5))}}
+const atrasoRow=s=>{const a=atraso(s);return a?`<div class="bad"><b>⚠ Atrasado</b> · ${brl(a.v)} · ${a.q} parcela(s) · há ${a.dias} dia(s)</div>`:''};
+function turmaOpts(cid,cur){if(!cid)return'<option value="">Escolha o curso primeiro</option>';const l=turmas.filter(t=>t.cursoId===cid&&((t.status==='ativa'&&(!t.max||ocupadas(t)<t.max))||t.id===cur));if(!l.length)return'<option value="">Nenhuma turma com vaga para este curso</option>';return'<option value="">Selecione</option>'+l.map(t=>`<option value="${t.id}" ${cur===t.id?'selected':''}>${esc(turmaLabel(t)+' · '+DIAS[t.dia]+(t.max?' · '+ocupadas(t)+'/'+t.max:''))}</option>`).join('')}
 
 /* ---------- Cursos ---------- */
-vCursos=function(){return`<div class="row"><h2>Cursos</h2><button class="b" onclick="go('cform')">+ Novo</button></div>${courses.filter(c=>!c.arq).map(c=>`<div class="c" onclick="window.__cd=null;go('curso','${c.id}')"><b>${esc(c.nome)}</b><div class="k">${c.mods.length} módulos · ${lessons(c).length} aulas · ${c.carga}h · prof. ${esc(c.prof)}</div><div class="k">${enrolled(c).length} alunos ativos</div></div>`).join('')||'<div class="c k">Nenhum curso.</div>'}`};
-vCForm=function(){const f=(k,l,t='text',v='')=>`<label>${l}</label><input id="c_${k}" type="${t}" value="${v}">`;return`<h2>Novo curso</h2><div class="c">${f('nome','Nome do curso *')}${f('prof','Professor responsável')}${f('carga','Carga horária total (h)','number')}${f('nmod','Quantidade de módulos *','number','1')}${f('tot','Total de aulas do curso *','number')}<div class="k">As aulas são divididas entre os módulos. Depois você ajusta dentro do curso.</div>${f('min','Frequência mínima (%)','number','75')}<label>Falta justificada</label><select id="c_just"><option value="0">Não entra no cálculo</option><option value="1">Conta como falta</option></select><div class="row"><button class="b2" onclick="go('cursos')">Cancelar</button><button class="b" onclick="saveCurso()">Criar</button></div></div>`};
+vCursos=function(){return`<div class="row"><h2>Cursos</h2><button class="b" onclick="go('cform')">+ Novo</button></div>${courses.filter(c=>!c.arq).map(c=>`<div class="c" onclick="window.__cd=null;go('curso','${c.id}')"><b>${esc(c.nome)}</b><div class="k">${c.mods.length} módulos · ${lessons(c).length} aulas · ${c.carga}h</div><div class="k">${enrolled(c).length} alunos ativos</div></div>`).join('')||'<div class="c k">Nenhum curso.</div>'}`};
+vCForm=function(){const f=(k,l,t='text',v='')=>`<label>${l}</label><input id="c_${k}" type="${t}" value="${v}">`;return`<h2>Novo curso</h2><div class="c">${f('nome','Nome do curso *')}${f('carga','Carga horária total (h)','number')}${f('nmod','Quantidade de módulos *','number','1')}${f('tot','Total de aulas do curso *','number')}<div class="k">As aulas são divididas entre os módulos. Depois você ajusta dentro do curso.</div>${f('min','Frequência mínima (%)','number','75')}<label>Falta justificada</label><select id="c_just"><option value="0">Não entra no cálculo</option><option value="1">Conta como falta</option></select><div class="row"><button class="b2" onclick="go('cursos')">Cancelar</button><button class="b" onclick="saveCurso()">Criar</button></div></div>`};
 async function saveCurso(){const g=k=>$('#c_'+k).value.trim(),nm=parseInt(g('nmod')),tot=parseInt(g('tot'));
  if(!g('nome')||!(nm>0)||!(tot>=nm)){alert('Informe nome, módulos e total de aulas (no mínimo uma aula por módulo).');return}
  const id=uid(),b=Math.floor(tot/nm),r=tot%nm;let n=0;
  const mods=[...Array(nm)].map((_,i)=>{const q=b+(i>=nm-r?1:0);return{nome:'Módulo '+(i+1),aulas:[...Array(q)].map(()=>{n++;return{id:'a'+n,n,titulo:'Aula '+n}})}});
- const c={id,nome:g('nome'),prof:g('prof'),carga:+g('carga')||0,min:+g('min')||75,just:g('just')==='1',total:tot,mods};
- try{await db.collection('courses').doc(id).set(c);log('Curso criado: '+c.nome);go('curso',id)}catch(e){alert('Erro: '+(e.message||e.code))}}
-
-const cdGet=id=>{if(!window.__cd||window.__cd.id!==id){const c=courses.find(x=>x.id===id);window.__cd=c?clone(c):null}return window.__cd};
+ const c={id,nome:g('nome'),carga:+g('carga')||0,min:+g('min')||75,just:g('just')==='1',total:tot,mods,avals:[]};
+ try{await db.collection('courses').doc(id).set(c);log('Curso criado: '+c.nome);go('curso',id)}catch(e){alert(erroTxt(e))}}
+const cdGet=id=>{if(!window.__cd||window.__cd.id!==id){const c=courses.find(x=>x.id===id);window.__cd=c?clone(c):null;if(window.__cd&&!window.__cd.avals)window.__cd.avals=[]}return window.__cd};
 const cdN=c=>c.mods.reduce((s,m)=>s+m.aulas.length,0);
 const cdRenum=c=>{let n=0;c.mods.forEach(m=>m.aulas.forEach(a=>{n++;a.n=n;if(/^Aula \d+$/.test(a.titulo))a.titulo='Aula '+n}))};
 vCurso=function(){const c=cdGet(sel);if(!c)return'<div class="c">Curso não encontrado.</div>';
- const n=cdN(c),tot=c.total||n,ok=n===tot,dirty=JSON.stringify(courses.find(x=>x.id===c.id))!==JSON.stringify(c);
- return`<button class="b2" onclick="window.__cd=null;go('cursos')">← Voltar</button><h2>${esc(c.nome)}</h2><div class="c"><div class="k">${c.carga}h · prof. ${esc(c.prof)} · frequência mínima ${c.min}% · ${c.just?'justificada conta como falta':'justificada fora do cálculo'}</div><label>Total de aulas do curso</label><input type="number" value="${tot}" onchange="cdTotal(this.value)"><div class="${ok?'ok':'bad'}"><b>${n} de ${tot} aulas cadastradas</b>${ok?'':' — ajuste para poder salvar'}</div></div>
+ const n=cdN(c),tot=c.total||n,ok=n===tot,orig=courses.find(x=>x.id===c.id)||{},dirty=JSON.stringify({...orig,avals:orig.avals||[]})!==JSON.stringify(c);
+ return`<button class="b2" onclick="window.__cd=null;go('cursos')">← Voltar</button><h2>${esc(c.nome)}</h2><div class="c"><div class="k">${c.carga}h · frequência mínima ${c.min}% · ${c.just?'justificada conta como falta':'justificada fora do cálculo'}</div><label>Total de aulas do curso</label><input type="number" value="${tot}" onchange="cdTotal(this.value)"><div class="${ok?'ok':'bad'}"><b>${n} de ${tot} aulas cadastradas</b>${ok?'':' — ajuste para poder salvar'}</div></div>
  ${c.mods.map((m,mi)=>`<div class="row"><h2>${esc(m.nome)} <button class="b2" onclick="cdRenMod(${mi})">✎</button></h2><button class="b2" onclick="cdAdd(${mi})">+ Aula</button></div>${m.aulas.map((a,ai)=>`<div class="c row"><span>${a.n}. ${esc(a.titulo)}</span><span><button class="b2" onclick="cdRenAula(${mi},${ai})">✎</button> <button class="b2" onclick="cdDel(${mi},${ai})">✕</button></span></div>`).join('')||'<div class="k">Sem aulas.</div>'}`).join('')}
+ <div class="row"><h2>Avaliações</h2><button class="b2" onclick="cdAvAdd()">+ Avaliação</button></div>${c.avals.map((v,i)=>`<div class="c"><div class="row"><b>${esc(v.nome)}</b><span><button class="b2" onclick="cdAvRen(${i})">✎</button> <button class="b2" onclick="cdAvDel(${i})">✕</button></span></div><label>Nota máxima</label><input type="number" min="1" step="0.5" value="${v.max}" onchange="cdAvMax(${i},this.value)"></div>`).join('')||'<div class="k">Nenhuma avaliação. As turmas deste curso seguem o que for cadastrado aqui.</div>'}
  <div class="row"><button class="b2" onclick="window.__cd=null;render()">Descartar</button><button class="b" onclick="cdSave()" ${dirty?'':'disabled'}>Salvar alterações</button></div>
  <div class="c" style="margin-top:14px"><button class="b2 bad" onclick="delCurso('${c.id}')">Apagar curso</button></div>`};
 function cdTotal(v){const c=cdGet(sel),n=parseInt(v);if(n>0)c.total=n;render()}
@@ -387,61 +415,99 @@ function cdRenMod(mi){const c=cdGet(sel),v=prompt('Nome do módulo',c.mods[mi].n
 function cdRenAula(mi,ai){const c=cdGet(sel),a=c.mods[mi].aulas[ai],v=prompt('Nome da aula',a.titulo);if(v&&v.trim()){a.titulo=v.trim();render()}}
 function cdAdd(mi){const c=cdGet(sel);c.mods[mi].aulas.push({id:'a'+uid(),n:0,titulo:'Aula 0'});cdRenum(c);render()}
 function cdDel(mi,ai){const c=cdGet(sel),a=c.mods[mi].aulas[ai];
- const hasAtt=turmas.some(t=>t.cursoId===c.id&&t.att&&t.att[a.id]&&Object.keys(t.att[a.id]).length);
+ const hasAtt=andam.some(x=>{const t=tOf(x.id);return t&&t.cursoId===c.id&&x.att&&x.att[a.id]&&Object.keys(x.att[a.id]).length});
  if(hasAtt&&!confirm('A aula "'+a.titulo+'" já tem chamada registrada em alguma turma. Ao remover, essa chamada deixa de contar. Remover mesmo assim?'))return;
  c.mods[mi].aulas.splice(ai,1);cdRenum(c);render()}
+function cdAvAdd(){const c=cdGet(sel),v=prompt('Nome da avaliação (ex.: Prova teórica)');if(v&&v.trim()){c.avals.push({id:'v'+uid(),nome:v.trim(),max:10});render()}}
+function cdAvRen(i){const c=cdGet(sel),v=prompt('Nome da avaliação',c.avals[i].nome);if(v&&v.trim()){c.avals[i].nome=v.trim();render()}}
+function cdAvMax(i,v){const c=cdGet(sel),n=parseFloat(String(v).replace(',','.'));if(n>0)c.avals[i].max=n;render()}
+function cdAvDel(i){const c=cdGet(sel),v=c.avals[i];const has=andam.some(x=>{const t=tOf(x.id);return t&&t.cursoId===c.id&&Object.values(x.notas||{}).some(n=>n&&n[v.id]!=null)});
+ if(has&&!confirm('A avaliação "'+v.nome+'" já tem notas lançadas em alguma turma. Ao remover, essas notas deixam de aparecer. Remover mesmo assim?'))return;c.avals.splice(i,1);render()}
 async function cdSave(){const c=cdGet(sel);if(!c)return;const n=cdN(c),tot=c.total||n;
  if(n!==tot){alert('O curso precisa ter '+tot+' aulas para salvar. Hoje tem '+n+(n<tot?' (faltam '+(tot-n)+').':' (sobram '+(n-tot)+').'));return}
  c.total=tot;
- try{await db.collection('courses').doc(c.id).set(c);log('Curso alterado: '+c.nome);courses=courses.map(x=>x.id===c.id?clone(c):x);window.__cd=null;msg='Curso salvo.';render()}catch(e){alert('Erro: '+(e.message||e.code))}}
+ try{await db.collection('courses').doc(c.id).set(c);log('Curso alterado: '+c.nome);courses=courses.map(x=>x.id===c.id?clone(c):x);window.__cd=null;msg='Curso salvo.';render()}catch(e){alert(erroTxt(e))}}
 async function delCurso(id){const c=courses.find(x=>x.id===id);if(!c)return;
  const tt=turmas.filter(t=>t.cursoId===id),at=tt.filter(t=>t.status==='ativa');
  if(at.length){alert('Este curso tem '+at.length+' turma(s) ativa(s): '+at.map(t=>t.id).join(', ')+'. Conclua ou cancele as turmas antes de apagar o curso.');return}
  const al=students.filter(s=>cidOf(s)===id&&s.status==='ativo').length;
  if(!confirm('Apagar o curso "'+c.nome+'"?'+(al?'\n\n'+al+' aluno(s) ativo(s) estão cadastrados nele e continuam no sistema.':'')+(tt.length?'\n\nTurmas concluídas ou canceladas deste curso perdem as informações do curso nos relatórios.':'')+'\n\nEsta ação não pode ser desfeita.'))return;
- try{await db.collection('courses').doc(id).delete();log('Curso apagado: '+c.nome);window.__cd=null;msg='Curso apagado.';go('cursos')}catch(e){alert('Erro: '+(e.message||e.code))}}
+ try{await db.collection('courses').doc(id).delete();log('Curso apagado: '+c.nome);window.__cd=null;msg='Curso apagado.';go('cursos')}catch(e){alert(erroTxt(e))}}
 
 /* ---------- Turmas ---------- */
-function turmaOpts(cid,cur){if(!cid)return'<option value="">Escolha o curso primeiro</option>';const l=turmas.filter(t=>t.cursoId===cid&&(t.status==='ativa'||t.id===cur));if(!l.length)return'<option value="">Nenhuma turma disponível para este curso</option>';return'<option value="">Selecione</option>'+l.map(t=>`<option value="${t.id}" ${cur===t.id?'selected':''}>${esc(turmaLabel(t)+' · '+DIAS[t.dia])}</option>`).join('')}
-vTurmas=function(){const o=(l,f)=>l.map(f).join(''),m=manageT();
+function ntSnap(){const g=k=>($('#t_'+k)||{}).value;window.__nf={curso:g('curso'),per:g('per'),dia:g('dia'),turno:g('turno'),hora:g('hora'),max:g('max'),profs:[...document.querySelectorAll('.t_prof')].map(e=>e.value)};if(!window.__nf.profs.length)window.__nf.profs=['']}
+function ntAddProf(){ntSnap();window.__nf.profs.push('');render()}
+function ntRemProf(i){ntSnap();window.__nf.profs.splice(i,1);if(!window.__nf.profs.length)window.__nf.profs=[''];render()}
+vTurmas=function(){const o=(l,f)=>l.map(f).join(''),m=manageT(),nf=window.__nf,me_=myProf();
  const head=(k,t)=>`<div class="row" onclick="window.${k}=!window.${k};render()" style="cursor:pointer"><b>${t}</b><span class="b2">${window[k]?'⌃':'⌄'}</span></div>`;
- const list=turmas.filter(t=>(t.status||'ativa')===window.__tf).sort((a,b)=>(a.id.slice(-2)+a.id).localeCompare(b.id.slice(-2)+b.id));
- return`<h2>Turmas</h2>${m?`<div class="c">${head('__ft','Nova turma')}${window.__ft?`<label>Curso</label><select id="t_curso">${o(courses.filter(c=>!c.arq),c=>`<option value="${c.id}">${esc(c.nome)}</option>`)}</select><label>Professor</label><select id="t_prof">${o(profs,p=>`<option value="${p.id}">${esc(p.nome)}</option>`)}</select><label>Período letivo</label><select id="t_per">${o([1,2,3,4],p=>`<option>${p}</option>`)}</select><label>Dia da semana</label><select id="t_dia">${o([1,2,3],d=>`<option value="${d}">${DIAS[d]}</option>`)}</select><label>Turno</label><select id="t_turno">${o([1,2,3],n=>`<option value="${n}">${TURNOS[n-1]}</option>`)}</select><label>Horário (24h, HH:MM)</label><input id="t_hora" placeholder="19:00" maxlength="5"><div class="k">Código: [período][dia][turno]-[ano]. Ex.: 123-26</div><button class="b" onclick="createTurma()">Criar turma</button>`:''}</div>
+ const opt=(v,l,cur)=>`<option value="${v}" ${String(cur)===String(v)?'selected':''}>${l}</option>`;
+ const list=turmas.filter(t=>(t.status||'ativa')===window.__tf&&visT(t)).sort((a,b)=>(a.id.slice(-2)+a.id).localeCompare(b.id.slice(-2)+b.id));
+ const aviso=perfil==='prof'&&!me_?'<div class="c bad">Seu login ainda não está vinculado a um professor. Peça ao diretor para vincular na tela Config.</div>':'';
+ return`<h2>Turmas</h2>${aviso}${m?`<div class="c">${head('__ft','Nova turma')}${window.__ft?`<label>Curso</label><select id="t_curso">${o(courses.filter(c=>!c.arq),c=>opt(c.id,esc(c.nome),nf.curso))}</select><label>Professor(es)</label>${o(nf.profs,(pv,i)=>`<div class="row"><select class="t_prof" style="flex:1"><option value="">Selecione</option>${o(profs,p=>opt(p.id,esc(p.nome),pv))}</select>${nf.profs.length>1?`<button class="b2" onclick="ntRemProf(${i})">✕</button>`:''}</div>`)}<button class="b2" onclick="ntAddProf()">+ Adicionar professor</button><label>Período letivo</label><select id="t_per">${o([1,2,3,4],p=>opt(p,p,nf.per))}</select><label>Dia da semana</label><select id="t_dia">${o([1,2,3],d=>opt(d,DIAS[d],nf.dia))}</select><label>Turno</label><select id="t_turno">${o([1,2,3],n=>opt(n,TURNOS[n-1],nf.turno))}</select><label>Horário (24h, HH:MM)</label><input id="t_hora" placeholder="19:00" maxlength="5" value="${esc(nf.hora||'')}"><label>Quantidade máxima de alunos *</label><input id="t_max" type="number" min="1" value="${esc(nf.max||'')}"><div class="k">Código: [período][dia][turno]-[ano]. Ex.: 123-26</div><button class="b" onclick="createTurma()">Criar turma</button>`:''}</div>
  <div class="c">${head('__fp','Professores')}${window.__fp?`${o(profs,p=>`<div class="k">${esc(p.nome)}</div>`)}<input id="pr_n" placeholder="Nome do professor"><button class="b" onclick="addProf()">Adicionar professor</button>`:''}</div>`:''}
  <select onchange="window.__tf=this.value;render()" style="font-weight:700">${[['ativa','Turmas Ativas'],['concluida','Turmas Concluídas'],['cancelada','Turmas Canceladas']].map(([v,l])=>`<option value="${v}" ${window.__tf===v?'selected':''}>${l}</option>`).join('')}</select>
- ${o(list,t=>{const c=cOf(t),p=profs.find(x=>x.id===t.profId)||{},n=students.filter(s=>s.turmaId===t.id).length,a=t.status==='ativa';return`<div class="c"><div class="row"><b>${t.id}</b><span class="tag">${t.status}</span></div><div class="k">${esc(c.nome)} · ${DIAS[t.dia]} · ${t.turno} ${t.hora} · prof. ${esc(p.nome||'')} · período ${esc(String(t.periodo))}</div><div class="k">${n} aluno(s) · avanço ${pct(lessonsT(c,t))}%</div><div class="row"><button class="b" onclick="go('turma','${t.id}')">Abrir turma</button>${m&&a?`<button class="b2" onclick="cancT('${t.id}')">Cancelar</button>`:''}</div>${m&&a?`<div class="row"><select onchange="saveT('${t.id}','profId',this.value)">${o(profs,x=>`<option value="${x.id}" ${x.id===t.profId?'selected':''}>${esc(x.nome)}</option>`)}</select><input value="${t.hora}" maxlength="5" onchange="saveT('${t.id}','hora',this.value)"></div>`:''}</div>`})||''}${list.length?'':'<div class="c k">Nenhuma turma nesta situação.</div>'}`};
-async function createTurma(){const g=k=>$('#t_'+k).value.trim(),d=+g('dia'),tn=+g('turno'),p=+g('per'),h=g('hora');
- if(!g('curso')||!g('prof')||![1,2,3].includes(d)||![1,2,3].includes(tn)||![1,2,3,4].includes(p)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(h)){alert('Preencha curso, professor, período, dia, turno e horário (HH:MM).');return}
+ ${o(list,t=>{const c=cOf(t),n=ocupadas(t),a=t.status==='ativa';return`<div class="c"><div class="row"><b>${t.id}</b><span class="tag">${t.status}</span></div><div class="k">${esc(c.nome)} · ${DIAS[t.dia]} · ${t.turno} ${t.hora} · prof. ${esc(profNames(t))} · período ${esc(String(t.periodo))}</div><div class="k">${n}${t.max?' de '+t.max:''} aluno(s) · avanço ${pct(lessonsT(c,t))}%</div><div class="row"><button class="b" onclick="go('turma','${t.id}')">Abrir turma</button>${m&&a?`<button class="b2" onclick="cancT('${t.id}')">Cancelar</button>`:''}</div>${m&&a?`<div class="row"><span class="k">Horário</span><input value="${t.hora}" maxlength="5" onchange="saveT('${t.id}','hora',this.value)"></div>`:''}</div>`})}${list.length?'':'<div class="c k">Nenhuma turma nesta situação.</div>'}`};
+async function createTurma(){const g=k=>$('#t_'+k).value.trim(),d=+g('dia'),tn=+g('turno'),p=+g('per'),h=g('hora'),mx=parseInt(g('max'));
+ const pids=[...document.querySelectorAll('.t_prof')].map(e=>e.value).filter(Boolean);
+ if(!g('curso')||!pids.length||![1,2,3].includes(d)||![1,2,3].includes(tn)||![1,2,3,4].includes(p)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(h)||!(mx>0)){alert('Preencha curso, professor, período, dia, turno, horário (HH:MM) e a quantidade máxima de alunos.');return}
+ if(new Set(pids).size!==pids.length){alert('O mesmo professor foi escolhido mais de uma vez.');return}
  const yy=String(new Date().getFullYear()).slice(-2),id=''+p+d+tn+'-'+yy;
- try{await db.collection('turmas').doc(id).create({id,cursoId:g('curso'),profId:g('prof'),periodo:p,dia:d,turno:TURNOS[tn-1],hora:h,ano:yy,status:'ativa',prog:{},att:{}});log('Turma criada: '+id);msg='Turma '+id+' criada.';window.__ft=false;render()}
- catch(e){if(/duplicate|23505|exist/i.test((e.message||'')+(e.code||'')))alert('Já existe uma turma com o código '+id+' (mesmo período, dia, turno e ano).');else alert('Erro: '+(e.message||e.code))}}
-vTurma=function(){const t=tOf(sel);if(!t)return'<div class="c">Turma não encontrada.</div>';
- const c=cOf(t),ls=lessonsT(c,t),al=students.filter(s=>s.turmaId===t.id),act=t.status==='ativa',p=profs.find(x=>x.id===t.profId)||{};
+ try{await db.collection('turmas').doc(id).create({id,cursoId:g('curso'),profId:pids[0],profIds:pids,periodo:p,dia:d,turno:TURNOS[tn-1],hora:h,ano:yy,max:mx,status:'ativa'});log('Turma criada: '+id);msg='Turma '+id+' criada.';window.__ft=false;window.__nf={profs:['']};render()}
+ catch(e){if(/duplicate|23505|exist/i.test((e.message||'')+(e.code||'')))alert('Já existe uma turma com o código '+id+' (mesmo período, dia, turno e ano).');else alert(erroTxt(e))}}
+async function saveTurmaF(id,fn){const t=clone(tOf(id));fn(t);try{await db.collection('turmas').doc(id).set(t)}catch(e){alert(erroTxt(e))}}
+function addProfT(tid,pid){if(!pid)return;saveTurmaF(tid,t=>{const ids=profsOf(t).slice();if(ids.includes(pid))return;ids.push(pid);t.profIds=ids;t.profId=ids[0]})}
+function remProfT(tid,pid){const t=tOf(tid);if(profsOf(t).length<=1){alert('A turma precisa ter pelo menos um professor.');return}saveTurmaF(tid,t=>{const ids=profsOf(t).filter(x=>x!==pid);t.profIds=ids;t.profId=ids[0]})}
+function setMax(tid,v){const n=parseInt(v),t=tOf(tid);if(!(n>0)){alert('Informe um número maior que zero.');render();return}if(n<ocupadas(t)){alert('A turma já tem '+ocupadas(t)+' aluno(s) ativo(s). O máximo não pode ser menor.');render();return}saveTurmaF(tid,x=>{x.max=n})}
+const sec=(k,t,body,extra)=>`<div class="row" onclick="window.__sec.${k}=!window.__sec.${k};render()" style="cursor:pointer"><h2>${t}${extra||''}</h2><span class="b2">${window.__sec[k]?'⌃':'⌄'}</span></div>${window.__sec[k]?body:''}`;
+vTurma=function(){const t=tOf(sel);if(!t||!visT(t))return'<div class="c">Turma não encontrada.</div>';
+ const c=cOf(t),ls=lessonsT(c,t),al=students.filter(s=>s.turmaId===t.id),act=t.status==='ativa',avs=c.avals||[],mg=manageT();
+ const alunos=al.map(s=>`<div class="c"><div class="row"><b>${esc(s.nome)}</b><span class="tag">${esc(s.status)}</span></div>${atrasoRow(s)}</div>`).join('')||'<div class="c k">Nenhum aluno cadastrado nesta turma.</div>';
+ const modulos=c.mods.map((m,mi)=>`<h2>${esc(m.nome)} <span class="k">${pct(ls.filter(a=>a.mi===mi))}%</span></h2>${ls.filter(a=>a.mi===mi).map(a=>{const op=window.__ob[a.id];return`<div class="c"><div class="row"><b>${a.n}. ${esc(a.titulo)}</b>${act?`<button class="b2" onclick="window.__les='${a.id}';go('chamada','${t.id}')">Chamada</button>`:''}</div>${act?`<div class="row"><input type="date" style="width:48%" value="${a.data}" onchange="saveLesT('${t.id}','${a.id}','data',this.value)"><select style="width:48%" onchange="saveLesT('${t.id}','${a.id}','status',this.value)">${['planejada','realizada','cancelada','reposta'].map(o=>`<option ${a.status===o?'selected':''}>${o}</option>`).join('')}</select></div>`:`<div class="k">${a.data?dbr(a.data)+' · ':''}${a.status}</div>`}
+ <div class="row" onclick="window.__ob['${a.id}']=!window.__ob['${a.id}'];render()" style="cursor:pointer"><span class="k">Observação${a.obs?' ●':''}</span><span class="b2">${op?'⌃':'⌄'}</span></div>${op?(act?`<textarea id="ob_${a.id}" rows="3" onchange="saveObs('${t.id}','${a.id}',this.value)">${esc(a.obs)}</textarea><button class="b2" onclick="saveObs('${t.id}','${a.id}',document.getElementById('ob_${a.id}').value)">Salvar observação</button>`:`<div class="k">${esc(a.obs)||'Sem observação.'}</div>`):''}</div>`}).join('')}`).join('');
+ const freq=al.filter(s=>s.status==='ativo').map(s=>{const f=freqT(c,t,s.id),low=f.pc!==null&&f.pc<c.min;return`<div class="c row"><span>${esc(s.nome)}<br><span class="k">${f.p} pres · ${f.f} faltas · ${f.j} justif.</span></span><b class="${low?'bad':'ok'}">${f.pc===null?'—':f.pc+'%'}</b></div>`}).join('')||'<div class="k">Nenhum aluno ativo.</div>';
+ const aval=avs.length?al.filter(s=>s.status==='ativo').map(s=>{const md=mediaT(t,s.id,avs);return`<div class="c"><div class="row"><b>${esc(s.nome)}</b><span class="k">Média ${md===null?'—':md}</span></div>${avs.map(v=>{const n=notaOf(t,s.id,v.id);return`<div class="row"><span class="k">${esc(v.nome)} (máx ${v.max})</span><input type="number" step="0.1" min="0" max="${v.max}" style="width:90px" value="${n===null?'':n}" ${act?'':'disabled'} onchange="saveNota('${t.id}','${s.id}','${v.id}',this.value)"></div>`}).join('')}</div>`}).join('')||'<div class="k">Nenhum aluno ativo.</div>':'<div class="c k">Nenhuma avaliação cadastrada no curso. O diretor ou pedagógico cadastra na tela do curso.</div>';
+ const pids=profsOf(t),n=ocupadas(t);
  return`<button class="b2" onclick="go('turmas')">← Voltar</button><div class="row"><h2>${t.id}</h2><span class="tag">${t.status}</span></div>
- <div class="c"><div class="k">${esc(c.nome)} · ${DIAS[t.dia]} · ${t.turno} ${t.hora} · prof. ${esc(p.nome||'')} · período ${esc(String(t.periodo))}</div><div class="v">${pct(ls)}% de avanço</div><div class="k">${ls.filter(done).length} de ${ls.filter(a=>a.status!=='cancelada').length} aulas realizadas</div>
- <div class="row">${can('rel')?`<button class="b2" onclick="window.__rel='freq';window.__rt='${t.id}';go('rel')">Relatório da turma</button>`:''}${act&&manageT()?`<button class="b" onclick="concT('${t.id}')">Concluir turma</button>`:''}</div></div>
- <h2>Alunos (${al.length})</h2>${al.map(s=>`<div class="c row"><b>${esc(s.nome)}</b><span class="tag">${esc(s.status)}</span></div>`).join('')||'<div class="c k">Nenhum aluno cadastrado nesta turma.</div>'}
- ${c.mods.map((m,mi)=>`<h2>${esc(m.nome)} <span class="k">${pct(ls.filter(a=>a.mi===mi))}%</span></h2>${ls.filter(a=>a.mi===mi).map(a=>`<div class="c"><div class="row"><b>${a.n}. ${esc(a.titulo)}</b>${act?`<button class="b2" onclick="window.__les='${a.id}';go('chamada','${t.id}')">Chamada</button>`:''}</div>${act?`<div class="row"><input type="date" style="width:48%" value="${a.data}" onchange="saveLesT('${t.id}','${a.id}','data',this.value)"><select style="width:48%" onchange="saveLesT('${t.id}','${a.id}','status',this.value)">${['planejada','realizada','cancelada','reposta'].map(o=>`<option ${a.status===o?'selected':''}>${o}</option>`).join('')}</select></div>`:`<div class="k">${a.data?dbr(a.data)+' · ':''}${a.status}</div>`}</div>`).join('')}`).join('')}
- <h2>Frequência</h2>${al.filter(s=>s.status==='ativo').map(s=>{const f=freqT(c,t,s.id),low=f.pc!==null&&f.pc<c.min;return`<div class="c row"><span>${esc(s.nome)}<br><span class="k">${f.p} pres · ${f.f} faltas · ${f.j} justif.</span></span><b class="${low?'bad':'ok'}">${f.pc===null?'—':f.pc+'%'}</b></div>`}).join('')||'<div class="k">Nenhum aluno ativo.</div>'}`};
-async function saveLesT(tid,aid,k,v){const t=clone(tOf(tid));t.prog=t.prog||{};t.prog[aid]={...(t.prog[aid]||{}),[k]:v};
- try{await db.collection('turmas').doc(tid).set(t);if(k==='status'){const a=lessons(cOf(t)).find(x=>x.id===aid)||{};log('Turma '+tid+' · aula '+a.n+': '+v)}}catch(e){alert('Erro')}}
+ <div class="c"><div class="k">${esc(c.nome)} · ${DIAS[t.dia]} · ${t.turno} ${t.hora} · período ${esc(String(t.periodo))}</div><div class="k">Professores: ${pids.map(id=>{const p=profs.find(x=>x.id===id)||{};return esc(p.nome||'—')+(mg&&act?` <a onclick="remProfT('${t.id}','${id}')">✕</a>`:'')}).join(', ')||'—'}</div>${mg&&act?`<select onchange="addProfT('${t.id}',this.value)"><option value="">+ Adicionar professor</option>${profs.filter(p=>!pids.includes(p.id)).map(p=>`<option value="${p.id}">${esc(p.nome)}</option>`).join('')}</select><label>Máximo de alunos</label><input type="number" min="1" value="${t.max||''}" onchange="setMax('${t.id}',this.value)">`:''}
+ <div class="k">${n}${t.max?' de '+t.max:''} aluno(s) ativo(s)</div><div class="v">${pct(ls)}% de avanço</div><div class="k">${ls.filter(done).length} de ${ls.filter(a=>a.status!=='cancelada').length} aulas realizadas</div>
+ <div class="row">${can('rel')?`<button class="b2" onclick="window.__rel='freq';window.__rt='${t.id}';go('rel')">Relatório da turma</button>`:''}${act&&mg?`<button class="b" onclick="concT('${t.id}')">Concluir turma</button>`:''}</div></div>
+ ${sec('alunos','Alunos ('+al.length+')',alunos)}${sec('modulos','Módulos',modulos)}${sec('freq','Frequência',freq)}${sec('aval','Avaliações',aval)}`};
 async function concT(id){const t=clone(tOf(id)),f=lessonsT(cOf(t),t).filter(a=>a.status!=='cancelada'&&!done(a)).length;
  if(!confirm('Concluir a turma '+id+'?'+(f?'\n\nAinda há '+f+' aula(s) sem realizar.':'')+'\n\nEla sai das turmas ativas e fica guardada em "Turmas Concluídas".'))return;
  t.status='concluida';t.concluidaEm=today();
- try{await db.collection('turmas').doc(id).set(t);log('Turma concluída: '+id);msg='Turma '+id+' concluída.';go('turmas')}catch(e){alert('Erro')}}
-
-/* ---------- Chamada por turma ---------- */
-vChamada=function(){const t=tOf(sel),c=t&&cOf(t),a=t&&lessonsT(c,t).find(x=>x.id===window.__les);if(!a)return'';
- const r=(t.att||{})[a.id]||{},al=students.filter(s=>s.turmaId===t.id&&s.status==='ativo');
+ try{await db.collection('turmas').doc(id).set(t);log('Turma concluída: '+id);msg='Turma '+id+' concluída.';go('turmas')}catch(e){alert(erroTxt(e))}}
+vChamada=function(){const t=tOf(sel),c=t&&cOf(t),a=t&&visT(t)&&lessonsT(c,t).find(x=>x.id===window.__les);if(!a)return'';
+ const r=(A(t).att||{})[a.id]||{},al=students.filter(s=>s.turmaId===t.id&&s.status==='ativo');
  return`<button class="b2" onclick="go('turma','${t.id}')">← Voltar</button><h2>Chamada: ${t.id}</h2><div class="k">${esc(c.nome)} · Aula ${a.n} · ${esc(a.titulo)} ${a.data?dbr(a.data):''}</div>${al.map(s=>`<div class="c"><b>${esc(s.nome)}</b><select id="a_${s.id}">${[['','—'],['P','Presente'],['F','Falta'],['J','Falta justificada'],['A','Atraso']].map(([v,l])=>`<option value="${v}" ${r[s.id]===v?'selected':''}>${l}</option>`).join('')}</select></div>`).join('')||'<div class="c k">Sem alunos ativos nesta turma.</div>'}<button class="b" onclick="saveCham()">Salvar chamada</button>`};
-async function saveCham(){const t=clone(tOf(sel)),o={};
- students.filter(s=>s.turmaId===t.id&&s.status==='ativo').forEach(s=>{const v=$('#a_'+s.id).value;if(v)o[s.id]=v});
- t.att=t.att||{};t.att[window.__les]=o;t.prog=t.prog||{};const p=t.prog[window.__les]||{};if(!p.status||p.status==='planejada')p.status='realizada';t.prog[window.__les]=p;
- try{await db.collection('turmas').doc(t.id).set(t);const a=lessons(cOf(t)).find(x=>x.id===window.__les)||{};log('Chamada registrada/editada: turma '+t.id+' aula '+a.n);msg='Chamada salva.';go('turma',t.id)}catch(e){alert('Erro')}}
 
 /* ---------- Relatório da turma ---------- */
 function freqRel(){const t=turmas.find(x=>x.id===window.__rt)||turmas[0];if(!t)return{t:'Frequência',h:['Aviso'],r:[['Cadastre uma turma primeiro.']]};
- const c=cOf(t),ls=lessonsT(c,t);
- return{t:'Frequência — turma '+t.id+' ('+c.nome+') · '+t.status+' · avanço '+pct(ls)+'%',h:['Aluno','Situação','Pres.','Faltas','Justif.','%','Frequência'],r:students.filter(s=>s.turmaId===t.id).map(s=>{const f=freqT(c,t,s.id);return[s.nome,s.status,f.p,f.f,f.j,f.pc===null?'—':f.pc+'%',f.pc!==null&&f.pc<c.min?'ABAIXO':'ok']})}}
+ const c=cOf(t),ls=lessonsT(c,t),avs=c.avals||[];
+ return{t:'Frequência — turma '+t.id+' ('+c.nome+') · '+t.status+' · avanço '+pct(ls)+'%',h:['Aluno','Situação','Pres.','Faltas','Justif.','%','Frequência',...avs.map(v=>v.nome),'Média'],r:students.filter(s=>s.turmaId===t.id).map(s=>{const f=freqT(c,t,s.id),md=mediaT(t,s.id,avs);return[s.nome,s.status,f.p,f.f,f.j,f.pc===null?'—':f.pc+'%',f.pc!==null&&f.pc<c.min?'ABAIXO':'ok',...avs.map(v=>{const n=notaOf(t,s.id,v.id);return n===null?'—':n}),md===null?'—':md]})}}
+
+/* ---------- Config: vincular login ao professor ---------- */
+function linkSel(u){const cur=profs.find(p=>p.userId===u.id);return`<label>Professor vinculado</label><select onchange="linkProf('${u.id}',this.value)"><option value="">— nenhum —</option>${profs.map(p=>`<option value="${p.id}" ${cur&&cur.id===p.id?'selected':''}>${esc(p.nome)}</option>`).join('')}</select>${cur?'':'<div class="k bad">Sem professor vinculado: ele não verá turmas.</div>'}`}
+async function linkProf(uid,pid){try{for(const p of profs){if(p.userId===uid&&p.id!==pid){const q=clone(p);delete q.userId;await db.collection('professores').doc(q.id).set(q)}}
+ if(pid){const q=clone(profs.find(x=>x.id===pid));q.userId=uid;await db.collection('professores').doc(pid).set(q)}log('Login vinculado ao professor')}catch(e){alert(erroTxt(e))}}
+
+/* ---------- Caixa: painel detalhado ---------- */
+const _vcx=vCaixa;
+vCaixa=function(){const h=_vcx();const t=today(),pz=window.__cxp;
+ const inP=d=>{if(d>t)return false;if(pz==='hoje')return d===t;if(pz==='semana')return d>=addD(t,-6);if(pz==='mes')return d.slice(0,7)===t.slice(0,7);return true};
+ const ent=allIn().filter(x=>inP(x.data)),sai=expenses.filter(x=>!x.est&&inP(x.data));
+ const grp=(l,kf,vf)=>{const m={};l.forEach(x=>{const k=kf(x);m[k]=m[k]||{v:0,n:0};m[k].v+=vf(x);m[k].n++});return Object.entries(m).sort((a,b)=>b[1].v-a[1].v)};
+ const tot=l=>r2(l.reduce((a,x)=>a+x.valor,0));
+ const rows=(g,T)=>g.map(([k,x])=>`<div class="row"><span>${esc(k)} <span class="k">(${x.n})</span></span><b>${brl(r2(x.v))} <span class="k">${T?Math.round(x.v/T*100):0}%</span></b></div>`).join('')||'<div class="k">Nada no período.</div>';
+ const org=x=>x.desc.indexOf('(matrícula)')>=0?'Matrículas':x.desc.indexOf('Aluno:')===0?'Parcelas de alunos':'Contas a receber';
+ const TE=tot(ent),TS=tot(sai);
+ const allE=r2(allIn().filter(x=>x.data<=t).reduce((a,x)=>a+x.valor,0)),allS=r2(expenses.filter(x=>x.data<=t&&!x.est).reduce((a,x)=>a+x.valor,0));
+ const body=`<select onchange="window.__cxp=this.value;render()">${[['hoje','Hoje'],['semana','Últimos 7 dias'],['mes','Este mês'],['tudo','Tudo']].map(([v,l])=>`<option value="${v}" ${pz===v?'selected':''}>${l}</option>`).join('')}</select>
+ <div class="row"><span>Entradas</span><b class="ok">${brl(TE)}</b></div><div class="row"><span>Saídas</span><b class="bad">${brl(TS)}</b></div><div class="row"><span>Resultado</span><b>${brl(r2(TE-TS))}</b></div>
+ <h2>Entradas por forma de pagamento</h2>${rows(grp(ent,x=>x.forma||'Não informada',x=>x.valor),TE)}
+ <h2>Entradas por origem</h2>${rows(grp(ent,org,x=>x.valor),TE)}
+ <h2>Saídas por categoria</h2>${rows(grp(sai,x=>x.cat||'Sem categoria',x=>x.valor),TS)}
+ <h2>Conferência do saldo</h2><div class="row"><span>Saldo inicial</span><b>${brl(+cfg.saldoInicial||0)}</b></div><div class="row"><span>+ Entradas até hoje</span><b>${brl(allE)}</b></div><div class="row"><span>− Saídas até hoje</span><b>${brl(allS)}</b></div><div class="row"><span>= Saldo atual</span><b class="ac">${brl(saldoAtual())}</b></div>`;
+ const panel=`<div class="c"><div class="row" onclick="window.__cx=!window.__cx;render()" style="cursor:pointer"><b>Detalhamento</b><span class="b2">${window.__cx?'⌃':'⌄'}</span></div>${window.__cx?body:''}</div>`;
+ return h.replace(/(<h2>Fluxo de caixa<\/h2><div class="g">[\s\S]*?<\/div><\/div><\/div>)/,m=>m+panel)};
 </script>
 </body></html>
